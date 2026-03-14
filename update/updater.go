@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -35,7 +36,8 @@ func TryUpdate(currentVersion string) error {
 	if err != nil {
 		return fmt.Errorf("fetch version: %w", err)
 	}
-	if latest == currentVersion {
+	// 统一去掉 v 前缀再比较（tag 可能是 v1.0.3，version.txt 是 1.0.3）
+	if strings.TrimPrefix(latest, "v") == strings.TrimPrefix(currentVersion, "v") {
 		return nil
 	}
 	log.Printf("update available: %s -> %s, downloading...", currentVersion, latest)
