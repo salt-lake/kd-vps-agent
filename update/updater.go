@@ -11,22 +11,27 @@ import (
 	"time"
 )
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
+const (
+	repo      = "salt-lake/kd-vps-agent"
+	assetName = "node-agent"
+)
 
-type versionResp struct {
-	Version string `json:"version"`
+var httpClient = &http.Client{Timeout: 60 * time.Second}
+
+type ghRelease struct {
+	TagName string `json:"tag_name"`
 }
 
-// CheckAndUpdate 检查服务端版本，若不同则下载新二进制并通过 systemctl 重启
-func CheckAndUpdate(apiBase, token, currentVersion string) {
-	if err := TryUpdate(apiBase, token, currentVersion); err != nil {
+// CheckAndUpdate 检查 GitHub 最新 Release，若版本不同则下载并重启
+func CheckAndUpdate(currentVersion string) {
+	if err := TryUpdate(currentVersion); err != nil {
 		log.Printf("check update failed: %v", err)
 	}
 }
 
 // TryUpdate 执行检查并更新，返回 error；已是最新版时返回 nil。
-func TryUpdate(apiBase, token, currentVersion string) error {
-	latest, err := fetchLatestVersion(apiBase, token)
+func TryUpdate(currentVersion string) error {
+	latest, err := fetchLatestVersion()
 	if err != nil {
 		return fmt.Errorf("fetch version: %w", err)
 	}
@@ -34,7 +39,7 @@ func TryUpdate(apiBase, token, currentVersion string) error {
 		return nil
 	}
 	log.Printf("update available: %s -> %s, downloading...", currentVersion, latest)
-	if err := downloadAndReplace(apiBase, token); err != nil {
+	if err := downloadAndReplace(latest); err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
 	log.Println("update success, restarting via systemctl...")
@@ -42,40 +47,37 @@ func TryUpdate(apiBase, token, currentVersion string) error {
 	return nil
 }
 
-func fetchLatestVersion(apiBase, token string) (string, error) {
-	req, err := http.NewRequest("GET", apiBase+"/api/agent/version", nil)
+func fetchLatestVersion() (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("version endpoint returned %d", resp.StatusCode)
+		return "", fmt.Errorf("github releases returned %d", resp.StatusCode)
 	}
-	var v versionResp
-	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+	var r ghRelease
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
 		return "", err
 	}
-	return v.Version, nil
+	return r.TagName, nil
 }
 
-func downloadAndReplace(apiBase, token string) error {
-	req, err := http.NewRequest("GET", apiBase+"/api/agent/binary", nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := httpClient.Do(req)
+func downloadAndReplace(tag string) error {
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, assetName)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("binary endpoint returned %d", resp.StatusCode)
+		return fmt.Errorf("download binary returned %d", resp.StatusCode)
 	}
 
 	self, err := os.Executable()
@@ -95,10 +97,6 @@ func downloadAndReplace(apiBase, token string) error {
 	}
 	f.Close()
 
-	if err := os.Chmod(tmp, 0755); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("chmod binary: %w", err)
-	}
 	if err := os.Rename(tmp, self); err != nil {
 		os.Remove(tmp)
 		return fmt.Errorf("replace binary: %w", err)

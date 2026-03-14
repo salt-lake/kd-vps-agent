@@ -102,13 +102,9 @@ func main() {
 	dispatcher := command.NewDispatcher()
 	dispatcher.Register(command.DockerRestartHandler{})
 	dispatcher.Register(command.BootstrapHandler{})
-	if cfg.APIBase != "" && cfg.ScriptToken != "" {
-		dispatcher.Register(command.SelfUpdateHandler{
-			APIBase:        cfg.APIBase,
-			Token:          cfg.ScriptToken,
-			CurrentVersion: Version,
-		})
-	}
+	dispatcher.Register(command.SelfUpdateHandler{
+		CurrentVersion: Version,
+	})
 
 	var xraySyncer *sync.XrayUserSync
 	if cfg.Protocol == "xray" && cfg.APIBase != "" && cfg.ScriptToken != "" {
@@ -146,14 +142,10 @@ func main() {
 	ticker := time.NewTicker(cfg.ReportInterval)
 	defer ticker.Stop()
 
-	// 自更新定时器
-	updateC := make(<-chan time.Time)
-	if cfg.APIBase != "" && cfg.ScriptToken != "" {
-		t := time.NewTicker(1 * time.Hour)
-		defer t.Stop()
-		updateC = t.C
-		update.CheckAndUpdate(cfg.APIBase, cfg.ScriptToken, Version)
-	}
+	// 自更新定时器（每小时检查 GitHub Releases）
+	updateTicker := time.NewTicker(1 * time.Hour)
+	defer updateTicker.Stop()
+	update.CheckAndUpdate(Version)
 
 	for {
 		select {
@@ -161,8 +153,8 @@ func main() {
 			p := collector.Collect()
 			p.AV = Version
 			publish(nc, reportSubject, p)
-		case <-updateC:
-			update.CheckAndUpdate(cfg.APIBase, cfg.ScriptToken, Version)
+		case <-updateTicker.C:
+			update.CheckAndUpdate(Version)
 		case <-ctx.Done():
 			log.Println("shutting down")
 			return
