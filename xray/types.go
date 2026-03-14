@@ -3,7 +3,7 @@ package xray
 import (
 	"time"
 
-	cmd "github.com/xtls/xray-core/app/proxyman/command"
+	cmd "github.com/salt-lake/kd-vps-agent/xrayproto/app/proxyman/command"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
@@ -23,8 +23,8 @@ type XrayAPI interface {
 }
 
 type GRPCXrayAPI struct {
-	addr       string // 127.0.0.1:10085
-	inboundTag string // 你要管理哪个 inbound 的 tag（例如 "vless-in"）
+	addr       string
+	inboundTag string
 	conn       *grpc.ClientConn
 	client     cmd.HandlerServiceClient
 	timeout    time.Duration
