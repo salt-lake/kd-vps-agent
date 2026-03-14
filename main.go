@@ -54,7 +54,7 @@ func LoadConfig() Config {
 		SwanContainer:  envOr("SWAN_CONTAINER", "strongswan"),
 		XrayContainer:  envOr("XRAY_CONTAINER", "xray"),
 		XrayAPIAddr:    envOr("XRAY_API_ADDR", "127.0.0.1:10085"),
-		XrayInboundTag: envOr("XRAY_INBOUND_TAG", "proxy"),
+		XrayInboundTag: envOr("XRAY_INBOUND_TAG", "vless"),
 		XrayConfigPath: envOr("XRAY_CONFIG_PATH", "/etc/xray/config.json"),
 		Iface:          collect.DetectPrimaryIface(),
 		ReportInterval: parseDuration(envOr("REPORT_INTERVAL", "2m")),

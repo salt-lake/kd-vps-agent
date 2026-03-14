@@ -33,10 +33,7 @@ kd-vps-agent/
 ├── sync/                  # Xray 用户同步
 ├── update/
 │   └── updater.go    # 检查 GitHub Releases → 下载新二进制 → 替换 → systemctl restart
-├── xray/                  # Xray gRPC API 封装
-└── deploy/
-    ├── node-agent.service  # systemd service 文件
-    └── install.sh          # 节点安装脚本
+└── xray/                  # Xray gRPC API 封装
 ```
 
 ---
@@ -77,6 +74,8 @@ type Handler interface {
 | `SWAN_CONTAINER` | `strongswan` | StrongSwan 容器名 |
 | `XRAY_CONTAINER` | `xray` | Xray 容器名 |
 | `XRAY_API_ADDR` | `127.0.0.1:10085` | Xray stats API 地址 |
+| `XRAY_INBOUND_TAG` | `vless` | Xray 入站 tag |
+| `XRAY_CONFIG_PATH` | `/etc/xray/config.json` | Xray 配置文件路径 |
 | `REPORT_INTERVAL` | `2m` | 上报间隔（Go duration 格式） |
 | `API_BASE` | — | 后端 API 基地址（xray 用户同步需要） |
 | `SCRIPT_TOKEN` | 同 `NATS_AUTH_TOKEN` | 访问后端 API 的 Bearer token |
@@ -112,12 +111,7 @@ type Handler interface {
 
 ## 节点安装
 
-```bash
-# 首次安装（自动拉取最新版）
-bash <(curl -fsSL https://raw.githubusercontent.com/salt-lake/kd-vps-agent/main/deploy/install.sh)
-
-# 安装指定版本
-bash deploy/install.sh v1.0.3
-```
-
-安装完成后填写 `/etc/node-agent/env` 中的环境变量，然后 `systemctl restart node-agent`。
+由后端 `scripts/agent_setup.sh` 自动完成，bootstrap 链路触发：
+1. 后端下发 `bootstrap` 指令
+2. 节点运行协议脚本（xray/ikev2）
+3. 成功后自动拉取并执行 `agent_setup.sh`，从 GitHub Releases 下载二进制并写入 systemd service
