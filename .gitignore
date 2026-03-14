@@ -1,0 +1,13 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+.env
+.idea
+.DS_Store
+/kd-vps-agent
+node-agent
+node-agent-linux
