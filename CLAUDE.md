@@ -91,21 +91,35 @@ type Handler interface {
 
 ---
 
-## 版本管理与发布
+## 构建
 
-版本号唯一来源：`version.txt`（格式 `1.0.3`，无 `v` 前缀）。
+### 本地开发构建
 
-**发布流程**：
-1. 修改 `version.txt`（如改为 `1.0.4`）
-2. 提交并打 tag：
-   ```bash
-   git add version.txt && git commit -m "chore: bump version to 1.0.4"
-   git tag v1.0.4 && git push origin v1.0.4
-   ```
-3. GitHub Actions 自动构建 linux/amd64 二进制并挂到 Release
-4. 节点每小时自动检查更新，或通过后端下发 `agent:self_update` 立即触发
+```bash
+# ikev2 版（默认，无 xray 依赖，~6.7MB）
+GOOS=linux GOARCH=amd64 go build -o node-agent .
 
-版本比较时自动忽略 `v` 前缀（`v1.0.4` == `1.0.4`）。
+# xray 版（含 gRPC/protobuf，~12MB）
+GOOS=linux GOARCH=amd64 go build -tags xray -o node-agent-xray .
+```
+
+两个版本通过 Go build tag `xray` 区分：
+- 默认构建：排除 `xray/`、`sync/`、`command/xray_user.go`、`collect/xray.go`
+- `-tags xray`：包含完整 xray gRPC 用户管理栈
+
+### 正式发布
+
+版本号唯一来源：`version.txt`（格式 `1.0.5`，无 `v` 前缀）。
+
+```bash
+echo "1.0.6" > version.txt
+git add version.txt && git commit -m "chore: bump version to 1.0.6"
+git tag v1.0.6 && git push origin v1.0.6
+```
+
+GitHub Actions 自动构建 `node-agent`（ikev2）和 `node-agent-xray` 两个 linux/amd64 产物并挂到 Release。
+
+节点每小时自动检查更新，或通过后端下发 `agent:self_update` 立即触发。版本比较时自动忽略 `v` 前缀。
 
 ---
 
