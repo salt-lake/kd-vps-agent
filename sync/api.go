@@ -1,3 +1,5 @@
+//go:build xray
+
 package sync
 
 import (

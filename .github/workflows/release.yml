@@ -17,15 +17,24 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build linux/amd64
+      - name: Build node-agent (ikev2)
         env:
           GOOS: linux
           GOARCH: amd64
           CGO_ENABLED: 0
         run: go build -trimpath -ldflags="-s -w" -o node-agent .
 
+      - name: Build node-agent-xray
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: 0
+        run: go build -trimpath -ldflags="-s -w" -tags xray -o node-agent-xray .
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: node-agent
+          files: |
+            node-agent
+            node-agent-xray
           generate_release_notes: true

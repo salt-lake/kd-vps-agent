@@ -5,19 +5,17 @@ import (
 	"log"
 	"os/exec"
 	"time"
-
-	"github.com/salt-lake/kd-vps-agent/sync"
 )
 
 var cst = time.FixedZone("CST", 8*3600)
 
-// startDailyJobs 启动两个独立的每日定时任务。
-func startDailyJobs(ctx context.Context, swanContainer string, syncer *sync.XrayUserSync) {
-	go startFullSyncJob(ctx, syncer)
+// startDailyJobs 启动每日定时任务。
+// fullSync 为 xray 全量同步函数，ikev2 传 nil。
+func startDailyJobs(ctx context.Context, swanContainer string, fullSync func()) {
+	go startFullSyncJob(ctx, fullSync)
 	go startClearLogJob(ctx, swanContainer)
 }
 
-// dailyScheduler 每天在指定北京时间小时触发 fn，ctx 取消时退出。
 func dailyScheduler(ctx context.Context, hour int, fn func()) {
 	for {
 		now := time.Now().In(cst)
@@ -35,14 +33,13 @@ func dailyScheduler(ctx context.Context, hour int, fn func()) {
 }
 
 // startFullSyncJob 每天北京时间 03:00 执行全量 xray 用户同步。
-func startFullSyncJob(ctx context.Context, syncer *sync.XrayUserSync) {
-	if syncer == nil {
+func startFullSyncJob(ctx context.Context, fullSync func()) {
+	if fullSync == nil {
 		return
 	}
 	dailyScheduler(ctx, 3, func() {
-		if err := syncer.FullSync(); err != nil {
-			log.Printf("startFullSyncJob: err=%v", err)
-		}
+		log.Println("daily full sync: start")
+		fullSync()
 	})
 }
 
@@ -57,6 +54,5 @@ func clearCharonLog(container string) {
 	).CombinedOutput()
 	if err != nil {
 		log.Printf("clearCharonLog: container=%s err=%v output=%s", container, err, out)
-		return
 	}
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/salt-lake/kd-vps-agent/collect"
 	"github.com/salt-lake/kd-vps-agent/command"
-	"github.com/salt-lake/kd-vps-agent/sync"
 	"github.com/salt-lake/kd-vps-agent/update"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -25,7 +24,6 @@ var versionFile string
 
 var Version = strings.TrimSpace(versionFile)
 
-// Config 集中管理所有环境变量，新增配置只需改 LoadConfig。
 type Config struct {
 	NATSUrl        string
 	NATSToken      string
@@ -66,18 +64,15 @@ func main() {
 
 	log.SetOutput(&lumberjack.Logger{
 		Filename:   "/var/log/node-agent.log",
-		MaxSize:    20,   // MB
+		MaxSize:    20,
 		MaxBackups: 3,
 		Compress:   true,
 	})
 	log.SetFlags(log.LstdFlags)
-	log.Printf("node-agent version=%s host=%s", Version, cfg.Host)
+	log.Printf("node-agent version=%s host=%s protocol=%s", Version, cfg.Host, cfg.Protocol)
 
 	if cfg.Host == "" {
 		log.Fatal("NODE_HOST is required")
-	}
-	if cfg.Protocol != "ikev2" && cfg.Protocol != "xray" {
-		log.Fatalf("unknown NODE_PROTOCOL=%s (supported: ikev2, xray)", cfg.Protocol)
 	}
 
 	nc, err := newNATSConn(cfg.NATSUrl, cfg.NATSToken)
@@ -94,7 +89,6 @@ func main() {
 		cancel()
 	}()
 
-	// IP 中的点替换为 - 避免与 NATS subject 分隔符冲突
 	hostKey := strings.ReplaceAll(cfg.Host, ".", "-")
 	reportSubject := "node.report." + hostKey
 	cmdSubject := "node.cmd." + hostKey
@@ -102,47 +96,29 @@ func main() {
 	dispatcher := command.NewDispatcher()
 	dispatcher.Register(command.DockerRestartHandler{})
 	dispatcher.Register(command.BootstrapHandler{})
-	dispatcher.Register(command.SelfUpdateHandler{
-		CurrentVersion: Version,
-	})
+	dispatcher.Register(command.SelfUpdateHandler{CurrentVersion: Version})
 
-	var xraySyncer *sync.XrayUserSync
-	if cfg.Protocol == "xray" && cfg.APIBase != "" && cfg.ScriptToken != "" {
-		xraySyncer = sync.NewXrayUserSync(
-			cfg.APIBase, cfg.ScriptToken,
-			cfg.XrayContainer, cfg.XrayAPIAddr,
-			cfg.XrayInboundTag, cfg.XrayConfigPath,
-		)
-		xraySyncer.Start(ctx)
-		dispatcher.Register(command.NewXrayUserAddHandler(xraySyncer))
-		dispatcher.Register(command.NewXrayUserRemoveHandler(xraySyncer))
-	}
+	fullSync := setupXray(ctx, cfg, dispatcher)
 
 	collector := collect.NewCollector(buildProviders(cfg)...)
 
-	// 订阅节点专属指令
 	if _, err := nc.Subscribe(cmdSubject, dispatcher.Dispatch); err != nil {
 		log.Fatalf("subscribe cmd failed: %v", err)
 	}
 
-	// 订阅协议分组广播
 	protoSubject := "node.cmd.proto." + cfg.Protocol
 	if _, err := nc.Subscribe(protoSubject, dispatcher.Dispatch); err != nil {
 		log.Fatalf("subscribe proto broadcast failed: %v", err)
 	}
 
-	// 每日定时任务（03:00 全量对齐 / 04:00 清空 charon.log）
-	go startDailyJobs(ctx, cfg.SwanContainer, xraySyncer)
+	go startDailyJobs(ctx, cfg.SwanContainer, fullSync)
 
-	// 立即上报一次
 	p := collector.Collect()
 	p.AV = Version
 	publish(nc, reportSubject, p)
 
 	ticker := time.NewTicker(cfg.ReportInterval)
 	defer ticker.Stop()
-
-	// 自更新定时器（每小时检查 GitHub Releases）
 	updateTicker := time.NewTicker(1 * time.Hour)
 	defer updateTicker.Stop()
 	update.CheckAndUpdate(Version)
@@ -162,7 +138,6 @@ func main() {
 	}
 }
 
-// newNATSConn 带 10 次重试的 NATS 连接工厂。
 func newNATSConn(url, token string) (*nats.Conn, error) {
 	opts := []nats.Option{
 		nats.Name("kd-node-agent"),
@@ -185,7 +160,6 @@ func newNATSConn(url, token string) (*nats.Conn, error) {
 	return nil, fmt.Errorf("last error: %w", err)
 }
 
-// buildProviders 根据 Config 组装采集器列表，main 不感知协议细节。
 func buildProviders(cfg Config) []collect.MetricProvider {
 	providers := []collect.MetricProvider{
 		collect.NewSysProvider(),
