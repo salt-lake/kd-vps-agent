@@ -11,6 +11,8 @@ import (
 	"github.com/salt-lake/kd-vps-agent/xray"
 )
 
+const assetName = "node-agent-xray"
+
 func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher) {
 	if cfg.APIBase == "" || cfg.ScriptToken == "" {
 		log.Println("xray sync disabled: API_BASE or SCRIPT_TOKEN not set")

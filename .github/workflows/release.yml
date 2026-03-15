@@ -22,7 +22,7 @@ jobs:
           GOOS: linux
           GOARCH: amd64
           CGO_ENABLED: 0
-        run: go build -trimpath -ldflags="-s -w" -o node-agent .
+        run: go build -trimpath -ldflags="-s -w" -o node-agent-ikev2 .
 
       - name: Build node-agent-xray
         env:
@@ -35,6 +35,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            node-agent
+            node-agent-ikev2
             node-agent-xray
           generate_release_notes: true

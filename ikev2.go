@@ -11,6 +11,8 @@ import (
 	"github.com/salt-lake/kd-vps-agent/command"
 )
 
+const assetName = "node-agent-ikev2"
+
 func setupXray(_ context.Context, _ Config, _ *command.Dispatcher) {}
 
 func buildProviders(cfg Config) []collect.MetricProvider {

@@ -97,7 +97,7 @@ func main() {
 	dispatcher := command.NewDispatcher()
 	dispatcher.Register(command.DockerRestartHandler{})
 	dispatcher.Register(command.BootstrapHandler{})
-	dispatcher.Register(command.SelfUpdateHandler{CurrentVersion: Version})
+	dispatcher.Register(command.SelfUpdateHandler{CurrentVersion: Version, AssetName: assetName})
 
 	setupXray(ctx, cfg, dispatcher)
 
@@ -122,7 +122,7 @@ func main() {
 	defer ticker.Stop()
 	updateTicker := time.NewTicker(1 * time.Hour)
 	defer updateTicker.Stop()
-	update.CheckAndUpdate(Version)
+	update.CheckAndUpdate(Version, assetName)
 
 	for {
 		select {
@@ -131,7 +131,7 @@ func main() {
 			p.AV = Version
 			publish(nc, reportSubject, p)
 		case <-updateTicker.C:
-			update.CheckAndUpdate(Version)
+			update.CheckAndUpdate(Version, assetName)
 		case <-ctx.Done():
 			log.Println("shutting down")
 			return

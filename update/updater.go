@@ -12,10 +12,7 @@ import (
 	"time"
 )
 
-const (
-	repo      = "salt-lake/kd-vps-agent"
-	assetName = "node-agent"
-)
+const repo = "salt-lake/kd-vps-agent"
 
 var httpClient = &http.Client{Timeout: 60 * time.Second}
 
@@ -24,14 +21,14 @@ type ghRelease struct {
 }
 
 // CheckAndUpdate 检查 GitHub 最新 Release，若版本不同则下载并重启
-func CheckAndUpdate(currentVersion string) {
-	if err := TryUpdate(currentVersion); err != nil {
+func CheckAndUpdate(currentVersion, assetName string) {
+	if err := TryUpdate(currentVersion, assetName); err != nil {
 		log.Printf("check update failed: %v", err)
 	}
 }
 
 // TryUpdate 执行检查并更新，返回 error；已是最新版时返回 nil。
-func TryUpdate(currentVersion string) error {
+func TryUpdate(currentVersion, assetName string) error {
 	latest, err := fetchLatestVersion()
 	if err != nil {
 		return fmt.Errorf("fetch version: %w", err)
@@ -41,7 +38,7 @@ func TryUpdate(currentVersion string) error {
 		return nil
 	}
 	log.Printf("update available: %s -> %s, downloading...", currentVersion, latest)
-	if err := downloadAndReplace(latest); err != nil {
+	if err := downloadAndReplace(latest, assetName); err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
 	log.Println("update success, restarting via systemctl...")
@@ -71,7 +68,7 @@ func fetchLatestVersion() (string, error) {
 	return r.TagName, nil
 }
 
-func downloadAndReplace(tag string) error {
+func downloadAndReplace(tag, assetName string) error {
 	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, assetName)
 	resp, err := httpClient.Get(url)
 	if err != nil {
