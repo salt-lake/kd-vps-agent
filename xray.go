@@ -20,12 +20,12 @@ func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher) {
 	}
 	syncer := xray.NewXrayUserSync(
 		cfg.APIBase, cfg.ScriptToken,
-		cfg.XrayContainer, cfg.XrayAPIAddr,
-		cfg.XrayInboundTag, cfg.XrayConfigPath,
+		cfg.XrayAPIAddr, cfg.XrayInboundTag, cfg.XrayConfigPath,
 	)
 	syncer.Start(ctx)
 	d.Register(command.NewXrayUserAddHandler(syncer))
 	d.Register(command.NewXrayUserRemoveHandler(syncer))
+	d.Register(command.NewXrayUpdateHandler(ctx, syncer, cfg.XrayConfigPath))
 	go dailyScheduler(ctx, 3, hostJitter(cfg.Host), func() {
 		log.Println("daily full sync: start")
 		if err := syncer.FullSync(); err != nil {
@@ -38,7 +38,7 @@ func buildProviders(cfg Config) []collect.MetricProvider {
 	return []collect.MetricProvider{
 		collect.NewSysProvider(),
 		collect.NewTrafficProvider(cfg.Iface),
-		collect.NewXrayProvider(cfg.XrayContainer, cfg.XrayAPIAddr),
+		collect.NewXrayProvider(cfg.XrayAPIAddr),
 	}
 }
 

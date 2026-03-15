@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
-	"strings"
 	"time"
 )
 
 // StartupSync 平滑初始化：
 // 1. 全量写配置文件（持久化保证）。
 // 2. 尝试探测 gRPC，如果可用则动态注入用户跳过重启。
-// 3. 如果 gRPC 不可用，执行 docker restart。
+// 3. 如果 gRPC 不可用，执行 systemctl restart xray。
 func (s *XrayUserSync) StartupSync() error {
 	users, err := s.fetchUsers()
 	if err != nil {
@@ -33,9 +32,9 @@ func (s *XrayUserSync) StartupSync() error {
 		return nil
 	}
 
-	log.Printf("xray_sync: gRPC unavailable or inject failed, falling back to restart container=%s", s.container)
-	if out, err := exec.Command("docker", "restart", s.container).CombinedOutput(); err != nil {
-		return fmt.Errorf("docker restart: %v, output: %s", err, out)
+	log.Printf("xray_sync: gRPC unavailable or inject failed, falling back to systemctl restart xray")
+	if out, err := exec.Command("systemctl", "restart", "xray").CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl restart xray: %v, output: %s", err, out)
 	}
 
 	s.mu.Lock()
@@ -128,13 +127,15 @@ func (s *XrayUserSync) DeltaSync() error {
 	return nil
 }
 
-// getContainerStartedAt 返回容器的启动时间字符串，失败返回空字符串。
-func (s *XrayUserSync) getContainerStartedAt() string {
-	out, err := exec.Command("docker", "inspect", "--format", "{{.State.StartedAt}}", s.container).Output()
+// isXrayHealthy 探测 xray gRPC 是否可用。
+func (s *XrayUserSync) isXrayHealthy() bool {
+	api, err := s.getAPI()
 	if err != nil {
-		return ""
+		return false
 	}
-	return strings.TrimSpace(string(out))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return api.IsXrayReady(ctx)
 }
 
 // syncAfterRestart 等待 xray gRPC 可用后重新全量注入用户，持续重试直到成功或 ctx 取消。
@@ -166,9 +167,9 @@ func (s *XrayUserSync) syncAfterRestart(ctx context.Context) {
 	}
 }
 
-// watchDockerRestart 每 30s 轮询容器 StartedAt，检测到重启后重新注入用户。
-func (s *XrayUserSync) watchDockerRestart(ctx context.Context) {
-	startedAt := s.getContainerStartedAt()
+// watchXrayHealth 每 30s 探测 xray gRPC 健康状态，连续 2 次失败则 systemctl restart xray 并重注入用户。
+func (s *XrayUserSync) watchXrayHealth(ctx context.Context) {
+	consecutiveFails := 0
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
 	for {
@@ -176,18 +177,27 @@ func (s *XrayUserSync) watchDockerRestart(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			current := s.getContainerStartedAt()
-			if current == "" || current == startedAt {
+			if s.isXrayHealthy() {
+				consecutiveFails = 0
 				continue
 			}
-			log.Printf("xray_sync: container restart detected (was=%s now=%s), re-syncing", startedAt, current)
-			startedAt = current
+			consecutiveFails++
+			log.Printf("xray_sync: health check failed (%d/2)", consecutiveFails)
+			if consecutiveFails < 2 {
+				continue
+			}
+			consecutiveFails = 0
+			log.Printf("xray_sync: xray unhealthy, restarting via systemctl")
 			s.mu.Lock()
 			if s.xrayAPI != nil {
 				_ = s.xrayAPI.Close()
 				s.xrayAPI = nil
 			}
 			s.mu.Unlock()
+			if out, err := exec.Command("systemctl", "restart", "xray").CombinedOutput(); err != nil {
+				log.Printf("xray_sync: systemctl restart xray failed: %v, output: %s", err, out)
+				continue
+			}
 			go s.syncAfterRestart(ctx)
 		}
 	}
@@ -226,7 +236,7 @@ func (s *XrayUserSync) Start(ctx context.Context) {
 		}
 	}()
 
-	go s.watchDockerRestart(ctx)
+	go s.watchXrayHealth(ctx)
 }
 
 // FullSync 全量拉取并与当前状态 diff，容错处理单用户失败，不更新 last_sync_time。

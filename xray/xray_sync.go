@@ -3,6 +3,7 @@
 package xray
 
 import (
+	"context"
 	"sync"
 )
 
@@ -13,7 +14,6 @@ const defaultUUID = "a1b2c3d4-0000-0000-0000-000000000001"
 type XrayUserSync struct {
 	apiBase    string
 	token      string
-	container  string
 	apiAddr    string
 	inboundTag string
 	configPath string
@@ -22,16 +22,20 @@ type XrayUserSync struct {
 	xrayAPI    *GRPCXrayAPI
 }
 
-func NewXrayUserSync(apiBase, token, container, apiAddr, inboundTag, configPath string) *XrayUserSync {
+func NewXrayUserSync(apiBase, token, apiAddr, inboundTag, configPath string) *XrayUserSync {
 	return &XrayUserSync{
 		apiBase:    apiBase,
 		token:      token,
-		container:  container,
 		apiAddr:    apiAddr,
 		inboundTag: inboundTag,
 		configPath: configPath,
 		current:    make(map[string]struct{}),
 	}
+}
+
+// TriggerResync 等待 xray gRPC 可用后重新全量注入用户（供外部调用）。
+func (s *XrayUserSync) TriggerResync(ctx context.Context) {
+	s.syncAfterRestart(ctx)
 }
 
 // Close 关闭持有的 gRPC 连接。
