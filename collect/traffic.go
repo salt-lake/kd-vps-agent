@@ -70,11 +70,14 @@ func (tr *trafficReader) read() (dayGB, monthGB string) {
 		delta = 0
 	}
 
-	if now.Day() != tr.lastDay {
+	dayReset := now.Day() != tr.lastDay
+	monthReset := int(now.Month()) != tr.lastMonth
+
+	if dayReset {
 		tr.dayBytes = 0
 		tr.lastDay = now.Day()
 	}
-	if int(now.Month()) != tr.lastMonth {
+	if monthReset {
 		tr.monthBytes = 0
 		tr.lastMonth = int(now.Month())
 	}
@@ -83,12 +86,14 @@ func (tr *trafficReader) read() (dayGB, monthGB string) {
 	tr.monthBytes += delta
 	tr.prevTx = tx
 
-	_ = saveTrafficState(trafficState{
-		DayBytes:   tr.dayBytes,
-		MonthBytes: tr.monthBytes,
-		LastDay:    tr.lastDay,
-		LastMonth:  tr.lastMonth,
-	})
+	if delta > 0 || dayReset || monthReset {
+		_ = saveTrafficState(trafficState{
+			DayBytes:   tr.dayBytes,
+			MonthBytes: tr.monthBytes,
+			LastDay:    tr.lastDay,
+			LastMonth:  tr.lastMonth,
+		})
+	}
 
 	return bytesToGBStr(tr.dayBytes), bytesToGBStr(tr.monthBytes)
 }

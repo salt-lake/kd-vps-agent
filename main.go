@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -98,7 +99,7 @@ func main() {
 	dispatcher.Register(command.BootstrapHandler{})
 	dispatcher.Register(command.SelfUpdateHandler{CurrentVersion: Version})
 
-	fullSync := setupXray(ctx, cfg, dispatcher)
+	setupXray(ctx, cfg, dispatcher)
 
 	collector := collect.NewCollector(buildProviders(cfg)...)
 
@@ -111,7 +112,7 @@ func main() {
 		log.Fatalf("subscribe proto broadcast failed: %v", err)
 	}
 
-	go startDailyJobs(ctx, cfg.SwanContainer, fullSync)
+	go startDailyJobs(ctx, cfg)
 
 	p := collector.Collect()
 	p.AV = Version
@@ -160,18 +161,35 @@ func newNATSConn(url, token string) (*nats.Conn, error) {
 	return nil, fmt.Errorf("last error: %w", err)
 }
 
-func buildProviders(cfg Config) []collect.MetricProvider {
-	providers := []collect.MetricProvider{
-		collect.NewSysProvider(),
-		collect.NewTrafficProvider(cfg.Iface),
+var cst = time.FixedZone("CST", 8*3600)
+
+// dailyScheduler 每天在北京时间 hour 点（加 jitter 偏移）执行 fn。
+// jitter 应基于节点 IP 计算，避免多节点同时触发。
+func dailyScheduler(ctx context.Context, hour int, jitter time.Duration, fn func()) {
+	for {
+		now := time.Now().In(cst)
+		next := time.Date(now.Year(), now.Month(), now.Day(), hour, 0, 0, 0, cst).Add(jitter)
+		if !next.After(now) {
+			next = next.Add(24 * time.Hour)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Until(next)):
+			fn()
+		}
 	}
-	switch cfg.Protocol {
-	case "ikev2":
-		providers = append(providers, collect.NewSwanProvider(cfg.SwanContainer))
-	case "xray":
-		providers = append(providers, collect.NewXrayProvider(cfg.XrayContainer, cfg.XrayAPIAddr))
+}
+
+// hostJitter 取 host IP 末段 mod 60 作为秒级抖动，同节点固定，不同节点错开。
+func hostJitter(host string) time.Duration {
+	parts := strings.Split(host, ".")
+	last := parts[len(parts)-1]
+	n, err := strconv.Atoi(last)
+	if err != nil {
+		return 0
 	}
-	return providers
+	return time.Duration(n%60) * time.Second
 }
 
 func publish(nc *nats.Conn, subject string, p collect.Payload) {

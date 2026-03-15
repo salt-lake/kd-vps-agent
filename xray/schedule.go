@@ -1,6 +1,6 @@
 //go:build xray
 
-package sync
+package xray
 
 import (
 	"context"
@@ -160,20 +160,6 @@ func (s *XrayUserSync) Start(ctx context.Context) {
 		}
 	}()
 
-	go func() {
-		t := time.NewTicker(5 * time.Minute)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				if err := s.CheckDest(); err != nil {
-					log.Printf("xray check_dest failed: %v", err)
-				}
-			}
-		}
-	}()
 }
 
 // FullSync 全量拉取并与当前状态 diff，容错处理单用户失败，不更新 last_sync_time。

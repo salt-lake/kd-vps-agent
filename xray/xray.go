@@ -17,11 +17,11 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	cmd "github.com/salt-lake/kd-vps-agent/xrayproto/app/proxyman/command"
-	stats "github.com/salt-lake/kd-vps-agent/xrayproto/app/stats/command"
-	"github.com/salt-lake/kd-vps-agent/xrayproto/common/protocol"
-	"github.com/salt-lake/kd-vps-agent/xrayproto/common/serial"
-	"github.com/salt-lake/kd-vps-agent/xrayproto/proxy/vless"
+	cmd "github.com/salt-lake/kd-vps-agent/xray/proto/app/proxyman/command"
+	stats "github.com/salt-lake/kd-vps-agent/xray/proto/app/stats/command"
+	"github.com/salt-lake/kd-vps-agent/xray/proto/common/protocol"
+	"github.com/salt-lake/kd-vps-agent/xray/proto/common/serial"
+	"github.com/salt-lake/kd-vps-agent/xray/proto/proxy/vless"
 )
 
 const DefaultXrayRPCTimeout = 1 * time.Second

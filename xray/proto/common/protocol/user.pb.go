@@ -7,7 +7,7 @@
 package protocol
 
 import (
-	serial "github.com/salt-lake/kd-vps-agent/xrayproto/common/serial"
+	serial "github.com/salt-lake/kd-vps-agent/xray/proto/common/serial"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

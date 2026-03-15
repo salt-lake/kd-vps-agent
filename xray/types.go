@@ -5,7 +5,7 @@ package xray
 import (
 	"time"
 
-	cmd "github.com/salt-lake/kd-vps-agent/xrayproto/app/proxyman/command"
+	cmd "github.com/salt-lake/kd-vps-agent/xray/proto/app/proxyman/command"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )

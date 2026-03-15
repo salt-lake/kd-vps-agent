@@ -7,7 +7,7 @@ node-agent 是部署在 VPS 节点上的独立 Go 二进制，负责：
 1. **指标采集上报**：定期采集系统指标（CPU/内存/磁盘/流量/连接数），通过 NATS 上报给后端
 2. **指令订阅执行**：监听 NATS 下发的运维指令（如 docker restart）
 3. **自更新**：每小时检查 GitHub Releases 最新版本，若不同则下载替换二进制并 `systemctl restart node-agent`
-4. **每日任务**：北京时间 04:00 清空 charon.log
+4. **每日任务**：ikev2 节点北京时间 04:00 清空 charon.log；xray 节点 03:00 全量同步用户
 
 ---
 
@@ -15,8 +15,9 @@ node-agent 是部署在 VPS 节点上的独立 Go 二进制，负责：
 
 ```
 kd-vps-agent/
-├── main.go           # 入口：NATS 连接、Provider 组装、主循环
-├── job_daily.go      # 每日定时任务（clearCharonLog）
+├── main.go           # 入口：NATS 连接、主循环、dailyScheduler 工具函数
+├── ikev2.go          # !xray 构建：setupXray stub、buildProviders、startDailyJobs
+├── xray.go           # xray 构建：setupXray 实现、buildProviders、startDailyJobs
 ├── version.txt       # 版本号（go:embed 嵌入二进制），格式：1.0.3（无 v 前缀）
 ├── collect/
 │   ├── collector.go  # Payload 结构、MetricProvider 接口、Collector 组合
@@ -29,11 +30,19 @@ kd-vps-agent/
 │   ├── docker_restart.go  # docker pull + restart 指令
 │   ├── bootstrap.go       # bootstrap 指令
 │   ├── self_update.go     # agent:self_update 指令（触发立即自更新）
-│   └── xray_user.go       # xray 用户增删指令
-├── sync/                  # Xray 用户同步
+│   └── xray_user.go       # xray 用户增删指令（仅 xray 构建）
 ├── update/
 │   └── updater.go    # 检查 GitHub Releases → 下载新二进制 → 替换 → systemctl restart
-└── xray/                  # Xray gRPC API 封装
+└── xray/             # xray 专属逻辑（仅 xray 构建）
+    ├── xray.go       # GRPCXrayAPI：gRPC 连接封装
+    ├── types.go      # gRPC 类型定义
+    ├── xray_sync.go  # XrayUserSync 结构体及构造函数
+    ├── grpc.go       # 用户增删的 gRPC 操作
+    ├── api.go        # 后端 HTTP API 拉取用户列表
+    ├── config.go     # xray 配置文件读写（clients 列表）
+    ├── schedule.go   # 定时同步、启动同步、增量同步
+    ├── state.go      # 同步状态持久化（/var/lib/node-agent/sync_state.json）
+    └── proto/        # protobuf 生成代码
 ```
 
 ---
@@ -48,7 +57,7 @@ type MetricProvider interface {
 }
 ```
 
-新增采集项：实现此接口，在 `main.go` 的 `buildProviders` 中注册。
+新增采集项：实现此接口，在 `ikev2.go` 或 `xray.go` 的 `buildProviders` 中注册。
 
 ### Handler（command 包）
 
@@ -104,8 +113,8 @@ GOOS=linux GOARCH=amd64 go build -tags xray -o node-agent-xray .
 ```
 
 两个版本通过 Go build tag `xray` 区分：
-- 默认构建：排除 `xray/`、`sync/`、`command/xray_user.go`、`collect/xray.go`
-- `-tags xray`：包含完整 xray gRPC 用户管理栈
+- 默认构建：`ikev2.go` 生效，排除 `xray/`、`command/xray_user.go`、`collect/xray.go`
+- `-tags xray`：`xray.go` 生效，包含完整 xray gRPC 用户管理栈
 
 ### 正式发布
 

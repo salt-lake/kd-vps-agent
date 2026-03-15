@@ -1,11 +1,9 @@
 //go:build xray
 
-package sync
+package xray
 
 import (
 	"sync"
-
-	xrayapi "github.com/salt-lake/kd-vps-agent/xray"
 )
 
 // defaultUUID 固定测试用户，永不被同步逻辑删除。
@@ -21,7 +19,7 @@ type XrayUserSync struct {
 	configPath string
 	mu         sync.Mutex
 	current    map[string]struct{}
-	xrayAPI    *xrayapi.GRPCXrayAPI
+	xrayAPI    *GRPCXrayAPI
 }
 
 func NewXrayUserSync(apiBase, token, container, apiAddr, inboundTag, configPath string) *XrayUserSync {

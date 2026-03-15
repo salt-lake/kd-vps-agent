@@ -1,6 +1,6 @@
 //go:build xray
 
-package sync
+package xray
 
 import (
 	"encoding/json"

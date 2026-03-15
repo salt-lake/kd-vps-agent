@@ -1,3 +1,5 @@
+//go:build xray
+
 package command
 
 import (

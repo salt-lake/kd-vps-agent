@@ -1,6 +1,6 @@
 //go:build xray
 
-package sync
+package xray
 
 import (
 	"context"
@@ -8,11 +8,10 @@ import (
 	"strings"
 	"time"
 
-	xrayapi "github.com/salt-lake/kd-vps-agent/xray"
 )
 
 // getAPI 获取或创建 xray gRPC API 客户端（长连接复用）。
-func (s *XrayUserSync) getAPI() (*xrayapi.GRPCXrayAPI, error) {
+func (s *XrayUserSync) getAPI() (*GRPCXrayAPI, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -20,7 +19,7 @@ func (s *XrayUserSync) getAPI() (*xrayapi.GRPCXrayAPI, error) {
 		return s.xrayAPI, nil
 	}
 
-	api, err := xrayapi.NewGRPCXrayAPI(s.apiAddr, s.inboundTag)
+	api, err := NewGRPCXrayAPI(s.apiAddr, s.inboundTag)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +45,7 @@ func (s *XrayUserSync) injectUsers(users []userDTO) error {
 		if u.UUID == defaultUUID {
 			continue
 		}
-		if err := api.AddOrReplace(ctx, &xrayapi.User{ID: u.UUID, UUID: u.UUID, Flow: "xtls-rprx-vision"}); err != nil {
+		if err := api.AddOrReplace(ctx, &User{ID: u.UUID, UUID: u.UUID, Flow: "xtls-rprx-vision"}); err != nil {
 			return fmt.Errorf("inject user %s failed: %w", u.UUID, err)
 		}
 	}
@@ -70,7 +69,7 @@ func (s *XrayUserSync) AddUser(uuid string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := api.AddOrReplace(ctx, &xrayapi.User{ID: uuid, UUID: uuid, Flow: "xtls-rprx-vision"}); err != nil {
+	if err := api.AddOrReplace(ctx, &User{ID: uuid, UUID: uuid, Flow: "xtls-rprx-vision"}); err != nil {
 		if strings.Contains(err.Error(), "connection") || strings.Contains(err.Error(), "unavailable") {
 			s.mu.Lock()
 			s.xrayAPI = nil
