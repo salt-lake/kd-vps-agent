@@ -4,15 +4,16 @@ import "os/exec"
 
 // Payload 上报数据结构（所有协议共用字段）
 type Payload struct {
-	C    string `json:"c"`
-	M    string `json:"m"`    // 月流量
-	D    string `json:"d"`    // 日流量
-	Conn string `json:"conn"` // 连接数
-	Mem  string `json:"mem"`  // 内存占用百分比
-	CPU  string `json:"cpu"`  // CPU 占用百分比
-	Disk string `json:"disk"` // 磁盘占用百分比
-	SV   string `json:"s_v"`  // 协议软件版本
-	AV   string `json:"a_v"`  // agent 版本
+	C      string `json:"c"`
+	M      string `json:"m"`       // 月流量
+	D      string `json:"d"`       // 日流量
+	Conn   string `json:"conn"`    // 连接数
+	Mem    string `json:"mem"`     // 内存占用百分比
+	CPU    string `json:"cpu"`     // CPU 占用百分比
+	Disk   string `json:"disk"`    // 磁盘占用百分比
+	SV     string `json:"s_v"`     // 协议软件版本
+	AV     string `json:"a_v"`     // agent 版本
+	NodeID string `json:"node_id"` // 节点 ID
 }
 
 // MetricProvider 单项采集接口，只填自己负责的字段

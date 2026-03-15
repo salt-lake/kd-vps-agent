@@ -29,6 +29,7 @@ type Config struct {
 	NATSUrl        string
 	NATSToken      string
 	Host           string
+	NodeID         string
 	APIBase        string
 	ScriptToken    string
 	Protocol       string
@@ -47,6 +48,7 @@ func LoadConfig() Config {
 		NATSUrl:        envOr("NATS_URL", nats.DefaultURL),
 		NATSToken:      token,
 		Host:           os.Getenv("NODE_HOST"),
+		NodeID:         os.Getenv("NODE_ID"),
 		APIBase:        strings.TrimRight(os.Getenv("API_BASE"), "/"),
 		ScriptToken:    envOr("SCRIPT_TOKEN", token),
 		Protocol:       envOr("NODE_PROTOCOL", "ikev2"),
@@ -116,6 +118,7 @@ func main() {
 
 	p := collector.Collect()
 	p.AV = Version
+	p.NodeID = cfg.NodeID
 	publish(nc, reportSubject, p)
 
 	ticker := time.NewTicker(cfg.ReportInterval)
@@ -129,6 +132,7 @@ func main() {
 		case <-ticker.C:
 			p := collector.Collect()
 			p.AV = Version
+			p.NodeID = cfg.NodeID
 			publish(nc, reportSubject, p)
 		case <-updateTicker.C:
 			update.CheckAndUpdate(Version, assetName)
