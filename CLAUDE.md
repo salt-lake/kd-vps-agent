@@ -106,7 +106,7 @@ type Handler interface {
 
 ```bash
 # ikev2 版（默认，无 xray 依赖，~6.7MB）
-GOOS=linux GOARCH=amd64 go build -o node-agent .
+GOOS=linux GOARCH=amd64 go build -o node-agent-ikev2 .
 
 # xray 版（含 gRPC/protobuf，~12MB）
 GOOS=linux GOARCH=amd64 go build -tags xray -o node-agent-xray .
@@ -126,7 +126,7 @@ git add version.txt && git commit -m "chore: bump version to 1.0.6"
 git tag v1.0.6 && git push origin v1.0.6
 ```
 
-GitHub Actions 自动构建 `node-agent`（ikev2）和 `node-agent-xray` 两个 linux/amd64 产物并挂到 Release。
+GitHub Actions 自动构建 `node-agent-ikev2` 和 `node-agent-xray` 两个 linux/amd64 产物并挂到 Release。
 
 节点每小时自动检查更新，或通过后端下发 `agent:self_update` 立即触发。版本比较时自动忽略 `v` 前缀。
 

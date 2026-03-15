@@ -224,7 +224,7 @@ https://api.github.com/repos/salt-lake/kd-vps-agent/releases/latest
 取 tag_name，去掉 v 前缀后与当前版本比较
   ↓ 版本不同
 下载二进制
-https://github.com/salt-lake/kd-vps-agent/releases/download/{tag}/node-agent
+https://github.com/salt-lake/kd-vps-agent/releases/download/{tag}/node-agent-ikev2  # 或 node-agent-xray
   ↓
 写到 {self}.new（权限 0755）
   ↓

@@ -11,10 +11,10 @@
 IKEv2 模式为**默认构建**，不需要额外 build tag：
 
 ```bash
-go build -o node-agent .
+go build -o node-agent-ikev2 .
 ```
 
-构建产物 `node-agent`（约 6.7MB），排除 xray 相关代码（sync/、xray/、command/xray_user.go）。
+构建产物 `node-agent-ikev2`（约 6.7MB），排除 xray 相关代码（xray/、command/xray_user.go）。
 
 ### 环境变量
 
