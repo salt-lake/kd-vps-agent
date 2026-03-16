@@ -34,6 +34,7 @@ type Config struct {
 	ScriptToken    string
 	Protocol       string
 	SwanContainer  string
+	SwanImage      string
 	XrayAPIAddr    string
 	XrayInboundTag string
 	XrayConfigPath string
@@ -52,6 +53,7 @@ func LoadConfig() Config {
 		ScriptToken:    envOr("SCRIPT_TOKEN", token),
 		Protocol:       envOr("NODE_PROTOCOL", "ikev2"),
 		SwanContainer:  envOr("SWAN_CONTAINER", "strongswan"),
+		SwanImage:      envOr("SWAN_IMAGE", "mooc1988/swan:latest"),
 		XrayAPIAddr:    envOr("XRAY_API_ADDR", "127.0.0.1:10085"),
 		XrayInboundTag: envOr("XRAY_INBOUND_TAG", "vless"),
 		XrayConfigPath: envOr("XRAY_CONFIG_PATH", "/etc/xray/config.json"),
@@ -95,7 +97,7 @@ func main() {
 	cmdSubject := "node.cmd." + hostKey
 
 	dispatcher := command.NewDispatcher()
-	dispatcher.Register(command.NewSwanUpdateHandler(cfg.SwanContainer))
+	dispatcher.Register(command.NewSwanUpdateHandler(cfg.SwanContainer, cfg.SwanImage))
 	dispatcher.Register(command.BootstrapHandler{})
 	dispatcher.Register(command.SelfUpdateHandler{CurrentVersion: Version, AssetName: assetName})
 
