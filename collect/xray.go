@@ -33,7 +33,7 @@ var xrayVersionRe = regexp.MustCompile(`Xray\s+(\S+)`)
 func xrayVersion() string {
 	out, err := exec.Command("xray", "version").Output()
 	if err != nil {
-		return ""
+		return "error"
 	}
 	m := xrayVersionRe.FindStringSubmatch(string(out))
 	if m == nil {

@@ -80,7 +80,7 @@ type Handler interface {
 | `NATS_URL` | `nats://127.0.0.1:4222` | NATS 服务地址 |
 | `NATS_AUTH_TOKEN` | — | NATS 认证 token |
 | `NODE_PROTOCOL` | `ikev2` | 协议类型：`ikev2` / `xray` |
-| `SWAN_CONTAINER` | `strongswan` | StrongSwan 容器名 |
+| `SWAN_CONTAINER` | `none` | StrongSwan 容器名；默认裸机模式（直接调用宿主 `ipsec`），Docker 部署设为容器名（如 `strongswan`）|
 | `XRAY_CONTAINER` | `xray` | Xray 容器名 |
 | `XRAY_API_ADDR` | `127.0.0.1:10085` | Xray stats API 地址 |
 | `XRAY_INBOUND_TAG` | `vless` | Xray 入站 tag |
