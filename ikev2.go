@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 	"os/exec"
 
 	"github.com/salt-lake/kd-vps-agent/collect"
@@ -32,12 +31,6 @@ func startDailyJobs(ctx context.Context, cfg Config) {
 }
 
 func clearCharonLog(container string) {
-	if container == "" || container == "none" {
-		if err := os.Truncate("/var/log/charon.log", 0); err != nil && !os.IsNotExist(err) {
-			log.Printf("clearCharonLog: truncate err=%v", err)
-		}
-		return
-	}
 	out, err := exec.Command("docker", "exec", container,
 		"sh", "-c", "test -f /var/log/charon.log && truncate -s 0 /var/log/charon.log || true",
 	).CombinedOutput()

@@ -95,7 +95,7 @@ func main() {
 	cmdSubject := "node.cmd." + hostKey
 
 	dispatcher := command.NewDispatcher()
-	dispatcher.Register(command.DockerRestartHandler{})
+	dispatcher.Register(command.NewSwanUpdateHandler(cfg.SwanContainer))
 	dispatcher.Register(command.BootstrapHandler{})
 	dispatcher.Register(command.SelfUpdateHandler{CurrentVersion: Version, AssetName: assetName})
 
