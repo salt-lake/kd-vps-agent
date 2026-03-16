@@ -2,7 +2,6 @@ package collect
 
 import (
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
 )
@@ -28,15 +27,7 @@ var (
 )
 
 func swanConnCount(container string) string {
-	var out string
-	var err error
-	if container == "" || container == "none" {
-		var b []byte
-		b, err = exec.Command("ipsec", "statusall").Output()
-		out = string(b)
-	} else {
-		out, err = dockerExec(container, "ipsec", "statusall")
-	}
+	out, err := dockerExec(container, "ipsec", "statusall")
 	if err != nil {
 		return "0"
 	}
@@ -62,15 +53,7 @@ func parseSwanConnCount(out string) string {
 }
 
 func swanVersion(container string) string {
-	var out string
-	var err error
-	if container == "" || container == "none" {
-		var b []byte
-		b, err = exec.Command("ipsec", "version").Output()
-		out = string(b)
-	} else {
-		out, err = dockerExec(container, "ipsec", "version")
-	}
+	out, err := dockerExec(container, "ipsec", "version")
 	if err != nil {
 		return ""
 	}

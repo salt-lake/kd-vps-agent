@@ -51,7 +51,7 @@ func LoadConfig() Config {
 		APIBase:        strings.TrimRight(os.Getenv("API_BASE"), "/"),
 		ScriptToken:    envOr("SCRIPT_TOKEN", token),
 		Protocol:       envOr("NODE_PROTOCOL", "ikev2"),
-		SwanContainer:  envOr("SWAN_CONTAINER", "none"),
+		SwanContainer:  envOr("SWAN_CONTAINER", "strongswan"),
 		XrayAPIAddr:    envOr("XRAY_API_ADDR", "127.0.0.1:10085"),
 		XrayInboundTag: envOr("XRAY_INBOUND_TAG", "vless"),
 		XrayConfigPath: envOr("XRAY_CONFIG_PATH", "/etc/xray/config.json"),
