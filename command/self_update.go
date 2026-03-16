@@ -6,13 +6,13 @@ import (
 	"github.com/salt-lake/kd-vps-agent/update"
 )
 
-// SelfUpdateHandler 处理 agent:self_update 指令，主动触发自更新
+// SelfUpdateHandler 处理 agent_self_update 指令，主动触发自更新
 type SelfUpdateHandler struct {
 	CurrentVersion string
 	AssetName      string
 }
 
-func (h SelfUpdateHandler) Name() string { return "agent:self_update" }
+func (h SelfUpdateHandler) Name() string { return "agent_self_update" }
 
 func (h SelfUpdateHandler) Handle(_ []byte) ([]byte, error) {
 	log.Println("self_update: triggered via command")
