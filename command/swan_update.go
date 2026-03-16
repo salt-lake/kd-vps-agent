@@ -1,10 +1,12 @@
 package command
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os/exec"
+	"time"
 )
 
 type swanUpdateReq struct {
@@ -34,7 +36,9 @@ func (h SwanUpdateHandler) Handle(data []byte) ([]byte, error) {
 		image = h.defaultImage
 	}
 	if image != "" {
-		if out, err := exec.Command("docker", "pull", image).CombinedOutput(); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		if out, err := exec.CommandContext(ctx, "docker", "pull", image).CombinedOutput(); err != nil {
 			log.Printf("swan_update: pull image=%s err=%v output=%s", image, err, out)
 			return errResp(fmt.Sprintf("docker pull failed: %v, output: %s", err, out)), nil
 		}
@@ -49,20 +53,17 @@ func (h SwanUpdateHandler) Handle(data []byte) ([]byte, error) {
 	return okResp("ok"), nil
 }
 
+type cmdResp struct {
+	Ok  bool   `json:"ok"`
+	Msg string `json:"msg"`
+}
+
 func okResp(msg string) []byte {
-	type resp struct {
-		Ok  bool   `json:"ok"`
-		Msg string `json:"msg"`
-	}
-	b, _ := json.Marshal(resp{Ok: true, Msg: msg})
+	b, _ := json.Marshal(cmdResp{Ok: true, Msg: msg})
 	return b
 }
 
 func errResp(msg string) []byte {
-	type resp struct {
-		Ok  bool   `json:"ok"`
-		Msg string `json:"msg"`
-	}
-	b, _ := json.Marshal(resp{Ok: false, Msg: msg})
+	b, _ := json.Marshal(cmdResp{Ok: false, Msg: msg})
 	return b
 }
