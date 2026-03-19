@@ -162,6 +162,9 @@ func (s *XrayUserSync) syncAfterRestart(ctx context.Context) {
 		}
 		if err := s.injectUsers(users); err == nil {
 			log.Printf("xray_sync: post-restart injected %d users OK (attempt=%d)", len(users), attempt)
+			if s.tempSync != nil {
+				s.tempSync.ReInjectAll()
+			}
 			return
 		}
 	}

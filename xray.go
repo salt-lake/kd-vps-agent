@@ -23,6 +23,9 @@ func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher) {
 		cfg.XrayAPIAddr, cfg.XrayInboundTag, cfg.XrayConfigPath,
 	)
 	syncer.Start(ctx)
+	tempSync := xray.NewTempUserSync(cfg.APIBase, cfg.ScriptToken, syncer)
+	syncer.SetTempSync(tempSync)
+	tempSync.Start(ctx)
 	d.Register(command.NewXrayUserAddHandler(syncer))
 	d.Register(command.NewXrayUserRemoveHandler(syncer))
 	d.Register(command.NewXrayUpdateHandler(ctx, syncer, cfg.XrayConfigPath))

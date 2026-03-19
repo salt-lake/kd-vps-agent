@@ -60,6 +60,45 @@ func (s *XrayUserSync) fetchUsers() ([]userDTO, error) {
 	return ar.Data, nil
 }
 
+type tempUsersResp struct {
+	Code int           `json:"code"`
+	Data tempUsersData `json:"data"`
+}
+
+type tempUsersData struct {
+	Version string   `json:"version"`
+	UUIDs   []string `json:"uuids"`
+}
+
+// fetchTempUsers 拉取临时用户列表。
+func fetchTempUsers(apiBase, token string) (version string, uuids []string, err error) {
+	req, err := http.NewRequest(http.MethodGet, apiBase+"/api/nodes/actions/temp-users", nil)
+	if err != nil {
+		return "", nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var tr tempUsersResp
+	if err := json.Unmarshal(body, &tr); err != nil {
+		return "", nil, fmt.Errorf("parse temp users response: %w", err)
+	}
+	if tr.Code != 200 {
+		return "", nil, fmt.Errorf("temp users api returned code=%d", tr.Code)
+	}
+	return tr.Data.Version, tr.Data.UUIDs, nil
+}
+
 // fetchDelta 从服务端拉取增量变更。
 func (s *XrayUserSync) fetchDelta(since int64) (*deltaData, error) {
 	url := fmt.Sprintf("%s/api/agent/xray/users/delta?since=%d", s.apiBase, since)

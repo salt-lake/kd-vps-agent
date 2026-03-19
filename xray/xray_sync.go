@@ -20,6 +20,12 @@ type XrayUserSync struct {
 	mu         sync.Mutex
 	current    map[string]struct{}
 	xrayAPI    *GRPCXrayAPI
+	tempSync   *TempUserSync
+}
+
+// SetTempSync 注入临时用户同步器，供 xray 重启后重注入临时用户。
+func (s *XrayUserSync) SetTempSync(ts *TempUserSync) {
+	s.tempSync = ts
 }
 
 func NewXrayUserSync(apiBase, token, apiAddr, inboundTag, configPath string) *XrayUserSync {
