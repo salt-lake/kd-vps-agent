@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/salt-lake/kd-vps-agent/collect"
 	"github.com/salt-lake/kd-vps-agent/command"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -31,6 +32,18 @@ func main() {
 	})
 	log.SetFlags(log.LstdFlags)
 	log.Printf("node-agent version=%s host=%s protocol=%s", Version, cfg.Host, cfg.Protocol)
+
+	if err := sentry.Init(sentry.ClientOptions{
+		Dsn:     os.Getenv("SENTRY_DSN"),
+		Release: Version,
+	}); err != nil {
+		log.Printf("sentry init failed: %v", err)
+	}
+	sentry.ConfigureScope(func(scope *sentry.Scope) {
+		scope.SetTag("host", cfg.Host)
+		scope.SetTag("protocol", cfg.Protocol)
+	})
+	defer sentry.Flush(2 * time.Second)
 
 	if cfg.Host == "" {
 		log.Fatal("NODE_HOST is required")

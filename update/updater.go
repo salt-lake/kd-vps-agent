@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 const repo = "salt-lake/kd-vps-agent"
@@ -35,6 +37,7 @@ type ghRelease struct {
 func CheckAndUpdate(currentVersion, assetName string) {
 	if err := TryUpdate(currentVersion, assetName); err != nil {
 		log.Printf("check update failed: %v", err)
+		sentry.CaptureException(err)
 	}
 }
 
@@ -53,7 +56,9 @@ func TryUpdate(currentVersion, assetName string) error {
 		return fmt.Errorf("download: %w", err)
 	}
 	log.Println("update success, restarting via systemctl...")
-	_ = exec.Command("systemctl", "restart", "node-agent").Run()
+	if err := exec.Command("systemctl", "restart", "node-agent").Run(); err != nil {
+		return fmt.Errorf("systemctl restart node-agent: %w", err)
+	}
 	return nil
 }
 

@@ -166,7 +166,10 @@ func buildProtocolUser(u *User) (*protocol.User, error) {
 
 // toTypedMessage 将 proto.Message 序列化为 TypedMessage（等价于 xray-core/common/serial.ToTypedMessage）
 func toTypedMessage(m proto.Message) *serial.TypedMessage {
-	b, _ := proto.Marshal(m)
+	b, err := proto.Marshal(m)
+	if err != nil {
+		log.Printf("toTypedMessage: marshal %T failed: %v", m, err)
+	}
 	return &serial.TypedMessage{
 		Type:  string(m.ProtoReflect().Descriptor().FullName()),
 		Value: b,

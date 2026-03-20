@@ -3,6 +3,7 @@ package collect
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -87,12 +88,14 @@ func (tr *trafficReader) read() (dayGB, monthGB string) {
 	tr.prevTx = tx
 
 	if delta > 0 || dayReset || monthReset {
-		_ = saveTrafficState(trafficState{
+		if err := saveTrafficState(trafficState{
 			DayBytes:   tr.dayBytes,
 			MonthBytes: tr.monthBytes,
 			LastDay:    tr.lastDay,
 			LastMonth:  tr.lastMonth,
-		})
+		}); err != nil {
+			log.Printf("traffic: save state err=%v", err)
+		}
 	}
 
 	return bytesToGBStr(tr.dayBytes), bytesToGBStr(tr.monthBytes)

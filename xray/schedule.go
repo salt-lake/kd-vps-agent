@@ -8,6 +8,8 @@ import (
 	"log"
 	"os/exec"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 // StartupSync 平滑初始化：
@@ -156,6 +158,7 @@ func (s *XrayUserSync) syncAfterRestart(ctx context.Context) {
 	users, err := s.fetchUsers()
 	if err != nil {
 		log.Printf("xray_sync: post-restart fetch users err=%v, will retry", err)
+		sentry.CaptureException(err)
 	}
 	for attempt := 1; ; attempt++ {
 		select {
@@ -205,12 +208,15 @@ func (s *XrayUserSync) watchXrayHealth(ctx context.Context) {
 			log.Printf("xray_sync: xray unhealthy, restarting via systemctl")
 			s.mu.Lock()
 			if s.xrayAPI != nil {
-				_ = s.xrayAPI.Close()
+				if err := s.xrayAPI.Close(); err != nil {
+					log.Printf("xray_sync: close gRPC conn err=%v", err)
+				}
 				s.xrayAPI = nil
 			}
 			s.mu.Unlock()
 			if out, err := exec.Command("systemctl", "restart", "xray").CombinedOutput(); err != nil {
 				log.Printf("xray_sync: systemctl restart xray failed: %v, output: %s", err, out)
+				sentry.CaptureException(fmt.Errorf("systemctl restart xray: %w, output: %s", err, out))
 				continue
 			}
 			go s.syncAfterRestart(ctx)
@@ -225,6 +231,7 @@ func (s *XrayUserSync) Start(ctx context.Context) {
 		for {
 			if err := s.StartupSync(); err != nil {
 				log.Printf("xray startup sync failed: %v, retrying in 30s", err)
+				sentry.CaptureException(err)
 				select {
 				case <-ctx.Done():
 					return
@@ -246,6 +253,7 @@ func (s *XrayUserSync) Start(ctx context.Context) {
 			case <-t.C:
 				if err := s.DeltaSync(); err != nil {
 					log.Printf("xray delta sync failed: %v", err)
+					sentry.CaptureException(err)
 				}
 			}
 		}

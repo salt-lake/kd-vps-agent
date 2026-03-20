@@ -43,12 +43,17 @@ func (s *XrayUserSync) writeConfig(users []userDTO) error {
 		}
 		clients = append(clients, map[string]string{"id": u.UUID, "email": emailFromUUID(u.UUID), "flow": "xtls-rprx-vision"})
 	}
-	clientsJSON, _ := json.Marshal(clients)
+	clientsJSON, err := json.Marshal(clients)
+	if err != nil {
+		return fmt.Errorf("marshal clients: %w", err)
+	}
 
 	for i, inbound := range inbounds {
 		var tag string
 		if t, ok := inbound["tag"]; ok {
-			_ = json.Unmarshal(t, &tag)
+			if err := json.Unmarshal(t, &tag); err != nil {
+				return fmt.Errorf("parse inbound tag: %w", err)
+			}
 		}
 		if tag != s.inboundTag {
 			continue
@@ -63,12 +68,18 @@ func (s *XrayUserSync) writeConfig(users []userDTO) error {
 			settings = make(map[string]json.RawMessage)
 		}
 		settings["clients"] = clientsJSON
-		settingsJSON, _ := json.Marshal(settings)
+		settingsJSON, err := json.Marshal(settings)
+		if err != nil {
+			return fmt.Errorf("marshal inbound settings: %w", err)
+		}
 		inbounds[i]["settings"] = settingsJSON
 		break
 	}
 
-	newInboundsJSON, _ := json.Marshal(inbounds)
+	newInboundsJSON, err := json.Marshal(inbounds)
+	if err != nil {
+		return fmt.Errorf("marshal inbounds: %w", err)
+	}
 	raw["inbounds"] = newInboundsJSON
 
 	out, err := json.MarshalIndent(raw, "", "  ")
