@@ -130,7 +130,7 @@ func TestTempUserSync_Startup_InjectsAll(t *testing.T) {
 	defer srv.Close()
 
 	m := newMockManager()
-	ts := NewTempUserSync(srv.URL, "token", m, 5*time.Minute)
+	ts := NewTempUserSync(srv.URL, "token", m)
 
 	if err := ts.startup(); err != nil {
 		t.Fatalf("startup err: %v", err)
@@ -153,7 +153,7 @@ func TestTempUserSync_Startup_InjectsAll(t *testing.T) {
 }
 
 func TestTempUserSync_Startup_APIError(t *testing.T) {
-	ts := NewTempUserSync("http://127.0.0.1:1", "token", newMockManager(), 5*time.Minute)
+	ts := NewTempUserSync("http://127.0.0.1:1", "token", newMockManager())
 	if err := ts.startup(); err == nil {
 		t.Fatal("expected error when API unreachable")
 	}
@@ -166,7 +166,7 @@ func TestTempUserSync_Startup_PartialAddError(t *testing.T) {
 	m := newMockManager()
 	m.addErr["u1"] = errors.New("grpc fail")
 
-	ts := NewTempUserSync(srv.URL, "token", m, 5*time.Minute)
+	ts := NewTempUserSync(srv.URL, "token", m)
 	// 单个错误不中断，startup 应成功
 	if err := ts.startup(); err != nil {
 		t.Fatalf("startup should not fail on partial add error: %v", err)
@@ -191,7 +191,7 @@ func TestTempUserSync_Poll_SameVersionSkips(t *testing.T) {
 	defer srv.Close()
 
 	m := newMockManager()
-	ts := NewTempUserSync(srv.URL, "token", m, 5*time.Minute)
+	ts := NewTempUserSync(srv.URL, "token", m)
 	ts.version = "v1"
 	ts.uuids = []string{"u1"}
 
@@ -208,7 +208,7 @@ func TestTempUserSync_Poll_AddsNew(t *testing.T) {
 	defer srv.Close()
 
 	m := newMockManager()
-	ts := NewTempUserSync(srv.URL, "token", m, 5*time.Minute)
+	ts := NewTempUserSync(srv.URL, "token", m)
 	ts.version = "v1"
 	ts.uuids = []string{"u1"} // u2 是新增
 
@@ -229,7 +229,7 @@ func TestTempUserSync_Poll_RemovesGone(t *testing.T) {
 	defer srv.Close()
 
 	m := newMockManager()
-	ts := NewTempUserSync(srv.URL, "token", m, 5*time.Minute)
+	ts := NewTempUserSync(srv.URL, "token", m)
 	ts.version = "v1"
 	ts.uuids = []string{"u1", "u2"} // u2 消失
 
@@ -271,7 +271,7 @@ func TestTempUserSync_Poll_AddBeforeRemove(t *testing.T) {
 	}
 	_ = m
 
-	ts := NewTempUserSync(srv.URL, "token", mgr, 5*time.Minute)
+	ts := NewTempUserSync(srv.URL, "token", mgr)
 	ts.version = "v1"
 	ts.uuids = []string{"u1", "u2"} // u3 新增，u1 删除
 
@@ -300,7 +300,7 @@ func TestTempUserSync_Poll_UpdatesCache(t *testing.T) {
 	srv := tempServer("v2", []string{"u2", "u3"})
 	defer srv.Close()
 
-	ts := NewTempUserSync(srv.URL, "token", newMockManager(), 5*time.Minute)
+	ts := NewTempUserSync(srv.URL, "token", newMockManager())
 	ts.version = "v1"
 	ts.uuids = []string{"u1"}
 
@@ -321,7 +321,7 @@ func TestTempUserSync_Poll_UpdatesCache(t *testing.T) {
 }
 
 func TestTempUserSync_Poll_APIError(t *testing.T) {
-	ts := NewTempUserSync("http://127.0.0.1:1", "token", newMockManager(), 5*time.Minute)
+	ts := NewTempUserSync("http://127.0.0.1:1", "token", newMockManager())
 	ts.version = "v1"
 	ts.uuids = []string{"u1"}
 
@@ -340,7 +340,7 @@ func TestTempUserSync_Poll_APIError(t *testing.T) {
 
 func TestTempUserSync_ReInjectAll_Empty(t *testing.T) {
 	m := newMockManager()
-	ts := NewTempUserSync("", "", m, 5*time.Minute)
+	ts := NewTempUserSync("", "", m)
 	ts.ReInjectAll() // 空缓存，不应 panic
 	if len(m.allAdded()) != 0 {
 		t.Error("expected no adds for empty cache")
@@ -349,7 +349,7 @@ func TestTempUserSync_ReInjectAll_Empty(t *testing.T) {
 
 func TestTempUserSync_ReInjectAll_InjectsAll(t *testing.T) {
 	m := newMockManager()
-	ts := NewTempUserSync("", "", m, 5*time.Minute)
+	ts := NewTempUserSync("", "", m)
 	ts.uuids = []string{"u1", "u2", "u3"}
 
 	ts.ReInjectAll()
@@ -364,7 +364,7 @@ func TestTempUserSync_ReInjectAll_InjectsAll(t *testing.T) {
 func TestTempUserSync_ReInjectAll_PartialError(t *testing.T) {
 	m := newMockManager()
 	m.addErr["u2"] = errors.New("fail")
-	ts := NewTempUserSync("", "", m, 5*time.Minute)
+	ts := NewTempUserSync("", "", m)
 	ts.uuids = []string{"u1", "u2", "u3"}
 
 	ts.ReInjectAll() // 单个失败不 panic，其余继续
