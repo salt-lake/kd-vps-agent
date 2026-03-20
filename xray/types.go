@@ -22,6 +22,7 @@ type XrayAPI interface {
 	AddBatch(ctx context.Context, users []*User) error
 	AddOrReplace(ctx context.Context, user *User) error
 	RemoveUserById(ctx context.Context, id string) error
+	Close() error
 }
 
 type GRPCXrayAPI struct {

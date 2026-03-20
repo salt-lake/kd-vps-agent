@@ -16,6 +16,17 @@ const repo = "salt-lake/kd-vps-agent"
 
 var httpClient = &http.Client{Timeout: 60 * time.Second}
 
+// fetchFn / downloadFn 可在测试中替换
+var fetchFn = func() (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	return fetchLatestVersionFrom(url)
+}
+
+var downloadFn = func(tag, assetName string) error {
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, assetName)
+	return downloadAndReplaceFrom(url)
+}
+
 type ghRelease struct {
 	TagName string `json:"tag_name"`
 }
@@ -29,7 +40,7 @@ func CheckAndUpdate(currentVersion, assetName string) {
 
 // TryUpdate 执行检查并更新，返回 error；已是最新版时返回 nil。
 func TryUpdate(currentVersion, assetName string) error {
-	latest, err := fetchLatestVersion()
+	latest, err := fetchFn()
 	if err != nil {
 		return fmt.Errorf("fetch version: %w", err)
 	}
@@ -38,7 +49,7 @@ func TryUpdate(currentVersion, assetName string) error {
 		return nil
 	}
 	log.Printf("update available: %s -> %s, downloading...", currentVersion, latest)
-	if err := downloadAndReplace(latest, assetName); err != nil {
+	if err := downloadFn(latest, assetName); err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
 	log.Println("update success, restarting via systemctl...")
@@ -46,8 +57,7 @@ func TryUpdate(currentVersion, assetName string) error {
 	return nil
 }
 
-func fetchLatestVersion() (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+func fetchLatestVersionFrom(url string) (string, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -68,8 +78,7 @@ func fetchLatestVersion() (string, error) {
 	return r.TagName, nil
 }
 
-func downloadAndReplace(tag, assetName string) error {
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, assetName)
+func downloadAndReplaceFrom(url string) error {
 	resp, err := httpClient.Get(url)
 	if err != nil {
 		return err

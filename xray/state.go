@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-const syncStateFile = "/var/lib/node-agent/sync_state.json"
+var syncStateFile = "/var/lib/node-agent/sync_state.json"
 
 type syncState struct {
 	LastSyncTime int64 `json:"last_sync_time"` // unix seconds

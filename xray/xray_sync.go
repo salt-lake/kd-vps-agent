@@ -26,7 +26,7 @@ type XrayUserSync struct {
 	configPath string
 	mu         sync.Mutex
 	current    map[string]struct{}
-	xrayAPI    *GRPCXrayAPI
+	xrayAPI    XrayAPI
 	tempSync   *TempUserSync
 }
 

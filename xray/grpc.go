@@ -11,7 +11,7 @@ import (
 )
 
 // getAPI 获取或创建 xray gRPC API 客户端（长连接复用）。
-func (s *XrayUserSync) getAPI() (*GRPCXrayAPI, error) {
+func (s *XrayUserSync) getAPI() (XrayAPI, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
