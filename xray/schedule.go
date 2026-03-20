@@ -52,7 +52,8 @@ func (s *XrayUserSync) StartupSync() error {
 }
 
 // diffUsers 计算 remote 与 current 的差集，返回需要新增和删除的 UUID 列表。
-func (s *XrayUserSync) diffUsers(remote map[string]struct{}) (toAdd, toRemove []string) {
+// exclude 中的 UUID（临时用户）不会出现在 toRemove 中。
+func (s *XrayUserSync) diffUsers(remote, exclude map[string]struct{}) (toAdd, toRemove []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for uuid := range remote {
@@ -64,11 +65,22 @@ func (s *XrayUserSync) diffUsers(remote map[string]struct{}) (toAdd, toRemove []
 		if uuid == defaultUUID {
 			continue
 		}
+		if _, ok := exclude[uuid]; ok {
+			continue
+		}
 		if _, ok := remote[uuid]; !ok {
 			toRemove = append(toRemove, uuid)
 		}
 	}
 	return
+}
+
+// tempUserSet 返回临时用户 UUID 集合快照（无临时同步器时返回空集合）。
+func (s *XrayUserSync) tempUserSet() map[string]struct{} {
+	if s.tempSync == nil {
+		return nil
+	}
+	return s.tempSync.UUIDSet()
 }
 
 // HourlySync 拉全量用户，diff current，只对变更用户调 xray API。
@@ -83,7 +95,7 @@ func (s *XrayUserSync) HourlySync() error {
 		remote[u.UUID] = struct{}{}
 	}
 
-	toAdd, toRemove := s.diffUsers(remote)
+	toAdd, toRemove := s.diffUsers(remote, s.tempUserSet())
 	for _, uuid := range toAdd {
 		if err := s.AddUser(uuid); err != nil {
 			log.Printf("xray_sync: hourly add user=%s err=%v", uuid, err)
@@ -254,7 +266,7 @@ func (s *XrayUserSync) FullSync() error {
 		remote[u.UUID] = struct{}{}
 	}
 
-	toAdd, toRemove := s.diffUsers(remote)
+	toAdd, toRemove := s.diffUsers(remote, s.tempUserSet())
 	for _, uuid := range toAdd {
 		if err := s.AddUser(uuid); err != nil {
 			log.Printf("xray_sync: full sync add user=%s err=%v (continuing)", uuid, err)

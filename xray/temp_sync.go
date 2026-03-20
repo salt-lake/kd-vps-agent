@@ -121,6 +121,17 @@ func (t *TempUserSync) ReInjectAll() {
 	log.Printf("temp_sync: re-injected %d temp users", len(uuids))
 }
 
+// UUIDSet 返回当前缓存的临时用户 UUID 集合的快照。
+func (t *TempUserSync) UUIDSet() map[string]struct{} {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	set := make(map[string]struct{}, len(t.uuids))
+	for _, u := range t.uuids {
+		set[u] = struct{}{}
+	}
+	return set
+}
+
 // Start 启动后台 goroutine：先 startup（30s 重试），再每 5 分钟 poll。
 func (t *TempUserSync) Start(ctx context.Context) {
 	go func() {
