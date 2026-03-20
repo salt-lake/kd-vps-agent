@@ -237,7 +237,7 @@ func (s *XrayUserSync) Start(ctx context.Context) {
 	}()
 
 	go func() {
-		t := time.NewTicker(1 * time.Hour)
+		t := time.NewTicker(5 * time.Minute)
 		defer t.Stop()
 		for {
 			select {
