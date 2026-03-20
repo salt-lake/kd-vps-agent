@@ -12,7 +12,6 @@ import (
 
 	"github.com/salt-lake/kd-vps-agent/collect"
 	"github.com/salt-lake/kd-vps-agent/command"
-	"github.com/salt-lake/kd-vps-agent/update"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -82,9 +81,6 @@ func main() {
 
 	ticker := time.NewTicker(cfg.ReportInterval)
 	defer ticker.Stop()
-	updateTicker := time.NewTicker(1 * time.Hour)
-	defer updateTicker.Stop()
-	update.CheckAndUpdate(Version, assetName)
 
 	for {
 		select {
@@ -93,8 +89,6 @@ func main() {
 			p.AV = Version
 			p.NodeID = cfg.NodeID
 			publish(nc, reportSubject, p)
-		case <-updateTicker.C:
-			update.CheckAndUpdate(Version, assetName)
 		case <-ctx.Done():
 			log.Println("shutting down")
 			return

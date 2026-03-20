@@ -8,6 +8,7 @@ import (
 
 	"github.com/salt-lake/kd-vps-agent/collect"
 	"github.com/salt-lake/kd-vps-agent/command"
+	"github.com/salt-lake/kd-vps-agent/update"
 	"github.com/salt-lake/kd-vps-agent/xray"
 )
 
@@ -45,4 +46,9 @@ func buildProviders(cfg Config) []collect.MetricProvider {
 	}
 }
 
-func startDailyJobs(_ context.Context, _ Config) {}
+func startDailyJobs(ctx context.Context, cfg Config) {
+	go dailyScheduler(ctx, 2, hostJitter(cfg.Host), func() {
+		log.Println("daily self update check: start")
+		update.CheckAndUpdate(Version, assetName)
+	})
+}
