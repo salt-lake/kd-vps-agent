@@ -185,7 +185,7 @@ func (s *XrayUserSync) syncAfterRestart(ctx context.Context) {
 // watchXrayHealth 每 30s 探测 xray gRPC 健康状态，连续 2 次失败则 systemctl restart xray 并重注入用户。
 func (s *XrayUserSync) watchXrayHealth(ctx context.Context) {
 	consecutiveFails := 0
-	t := time.NewTicker(30 * time.Second)
+	t := time.NewTicker(s.healthCheckInterval)
 	defer t.Stop()
 	for {
 		select {
@@ -237,7 +237,7 @@ func (s *XrayUserSync) Start(ctx context.Context) {
 	}()
 
 	go func() {
-		t := time.NewTicker(5 * time.Minute)
+		t := time.NewTicker(s.deltaSyncInterval)
 		defer t.Stop()
 		for {
 			select {

@@ -17,19 +17,21 @@ type userManager interface {
 
 // TempUserSync 管理临时用户的轮询同步（仅 gRPC 注入，不写配置文件）。
 type TempUserSync struct {
-	apiBase string
-	token   string
-	manager userManager
-	mu      sync.RWMutex
-	version string
-	uuids   []string
+	apiBase      string
+	token        string
+	manager      userManager
+	pollInterval time.Duration
+	mu           sync.RWMutex
+	version      string
+	uuids        []string
 }
 
-func NewTempUserSync(apiBase, token string, manager userManager) *TempUserSync {
+func NewTempUserSync(apiBase, token string, manager userManager, pollInterval time.Duration) *TempUserSync {
 	return &TempUserSync{
-		apiBase: apiBase,
-		token:   token,
-		manager: manager,
+		apiBase:      apiBase,
+		token:        token,
+		manager:      manager,
+		pollInterval: pollInterval,
 	}
 }
 
@@ -148,7 +150,11 @@ func (t *TempUserSync) Start(ctx context.Context) {
 			break
 		}
 
-		ticker := time.NewTicker(5 * time.Minute)
+		interval := t.pollInterval
+		if interval <= 0 {
+			interval = 5 * time.Minute
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {

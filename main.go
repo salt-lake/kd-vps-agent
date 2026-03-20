@@ -38,8 +38,11 @@ type Config struct {
 	XrayAPIAddr    string
 	XrayInboundTag string
 	XrayConfigPath string
-	Iface          string
-	ReportInterval time.Duration
+	Iface               string
+	ReportInterval      time.Duration
+	DeltaSyncInterval   time.Duration
+	TempSyncInterval    time.Duration
+	HealthCheckInterval time.Duration
 }
 
 func LoadConfig() Config {
@@ -57,8 +60,11 @@ func LoadConfig() Config {
 		XrayAPIAddr:    envOr("XRAY_API_ADDR", "127.0.0.1:10085"),
 		XrayInboundTag: envOr("XRAY_INBOUND_TAG", "vless"),
 		XrayConfigPath: envOr("XRAY_CONFIG_PATH", "/etc/xray/config.json"),
-		Iface:          collect.DetectPrimaryIface(),
-		ReportInterval: parseDuration(envOr("REPORT_INTERVAL", "2m")),
+		Iface:               collect.DetectPrimaryIface(),
+		ReportInterval:      parseDuration(envOr("REPORT_INTERVAL", "2m"), 2*time.Minute),
+		DeltaSyncInterval:   parseDuration(envOr("DELTA_SYNC_INTERVAL", "5m"), 5*time.Minute),
+		TempSyncInterval:    parseDuration(envOr("TEMP_SYNC_INTERVAL", "5m"), 5*time.Minute),
+		HealthCheckInterval: parseDuration(envOr("HEALTH_CHECK_INTERVAL", "30s"), 30*time.Second),
 	}
 }
 
@@ -214,10 +220,10 @@ func envOr(key, def string) string {
 	return def
 }
 
-func parseDuration(s string) time.Duration {
+func parseDuration(s string, fallback time.Duration) time.Duration {
 	d, err := time.ParseDuration(s)
 	if err != nil || d <= 0 {
-		return 2 * time.Minute
+		return fallback
 	}
 	return d
 }
