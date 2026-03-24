@@ -11,9 +11,10 @@ type Payload struct {
 	Mem    string `json:"mem"`     // 内存占用百分比
 	CPU    string `json:"cpu"`     // CPU 占用百分比
 	Disk   string `json:"disk"`    // 磁盘占用百分比
-	SV     string `json:"s_v"`     // 协议软件版本
-	AV     string `json:"a_v"`     // agent 版本
-	NodeID string `json:"node_id"` // 节点 ID
+	SV     string `json:"s_v"`               // 协议软件版本
+	AV     string `json:"a_v"`               // agent 版本
+	NodeID string `json:"node_id"`           // 节点 ID
+	Health string `json:"health,omitempty"` // 代理端口可达性："ok" / "err"（xray 专用）
 }
 
 // MetricProvider 单项采集接口，只填自己负责的字段

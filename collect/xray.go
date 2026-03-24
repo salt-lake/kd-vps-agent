@@ -3,27 +3,75 @@
 package collect
 
 import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
-// xrayProvider 采集 Xray 连接数和版本
-// 环境变量：
-//
-//	XRAY_API_ADDR   Xray API 地址（默认 127.0.0.1:10085）
+// xrayProvider 采集 Xray 连接数、版本和端口可达性
 type xrayProvider struct {
-	apiAddr string
+	apiAddr    string
+	configPath string
+	inboundTag string
 }
 
-func NewXrayProvider(apiAddr string) MetricProvider {
-	return &xrayProvider{apiAddr: apiAddr}
+func NewXrayProvider(apiAddr, configPath, inboundTag string) MetricProvider {
+	return &xrayProvider{apiAddr: apiAddr, configPath: configPath, inboundTag: inboundTag}
 }
 
 func (x *xrayProvider) Collect(p *Payload) {
 	p.Conn = xrayConnCount(x.apiAddr)
 	p.SV = xrayVersion()
+	if xrayPortProbe(x.configPath, x.inboundTag) {
+		p.Health = "ok"
+	} else {
+		p.Health = "err"
+	}
+}
+
+// xrayPortProbe 从配置文件读取监听端口，TCP dial 探测是否可达。
+func xrayPortProbe(configPath, inboundTag string) bool {
+	port, err := readInboundPort(configPath, inboundTag)
+	if err != nil || port <= 0 {
+		return false
+	}
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// readInboundPort 解析 xray 配置文件，返回指定 inbound tag 的监听端口。
+func readInboundPort(configPath, inboundTag string) (int, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return 0, err
+	}
+	var raw struct {
+		Inbounds []struct {
+			Tag  string      `json:"tag"`
+			Port json.Number `json:"port"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return 0, err
+	}
+	for _, ib := range raw.Inbounds {
+		if ib.Tag == inboundTag {
+			n, err := ib.Port.Int64()
+			return int(n), err
+		}
+	}
+	return 0, fmt.Errorf("inbound tag %q not found in %s", inboundTag, configPath)
 }
 
 var xrayVersionRe = regexp.MustCompile(`Xray\s+(\S+)`)

@@ -42,7 +42,7 @@ func buildProviders(cfg Config) []collect.MetricProvider {
 	return []collect.MetricProvider{
 		collect.NewSysProvider(),
 		collect.NewTrafficProvider(cfg.Iface),
-		collect.NewXrayProvider(cfg.XrayAPIAddr),
+		collect.NewXrayProvider(cfg.XrayAPIAddr, cfg.XrayConfigPath, cfg.XrayInboundTag),
 	}
 }
 
