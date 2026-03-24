@@ -34,14 +34,18 @@ func (BootstrapHandler) Handle(data []byte) ([]byte, error) {
 	}
 	natsURL := os.Getenv("NATS_URL")
 	natsToken := os.Getenv("NATS_AUTH_TOKEN")
+	protocol := os.Getenv("NODE_PROTOCOL")
+	if protocol == "" {
+		protocol = "ikev2"
+	}
 
 	if apiBase == "" || token == "" {
 		return errResp("API_BASE or token not configured"), nil
 	}
 
 	cmd := fmt.Sprintf(
-		`nohup bash -c 'curl -fsSL -H "Authorization: Bearer %s" -H "X-Node-ID: %d" "%s/api/scripts/bootstrap" | bash -s -- --node-id %d --token %s --script-name %s --api-base %s --nats-url %s --nats-token %s' > /tmp/bootstrap_%d.log 2>&1 &`,
-		token, req.NodeID, apiBase, req.NodeID, token, req.ScriptName, apiBase, natsURL, natsToken, req.NodeID,
+		`nohup bash -c 'curl -fsSL -H "Authorization: Bearer %s" -H "X-Node-ID: %d" "%s/api/scripts/bootstrap" | bash -s -- --node-id %d --token %s --script-name %s --api-base %s --nats-url %s --nats-token %s --protocol %s' > /tmp/bootstrap_%d.log 2>&1 &`,
+		token, req.NodeID, apiBase, req.NodeID, token, req.ScriptName, apiBase, natsURL, natsToken, protocol, req.NodeID,
 	)
 
 	if err := exec.Command("bash", "-c", cmd).Start(); err != nil {
