@@ -13,6 +13,7 @@ import (
 )
 
 const assetName = "node-agent-ikev2"
+const buildSuffix = "-ikev2"
 
 func setupXray(_ context.Context, _ Config, _ *command.Dispatcher) {}
 

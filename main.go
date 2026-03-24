@@ -19,7 +19,7 @@ import (
 //go:embed version.txt
 var versionFile string
 
-var Version = strings.TrimSpace(versionFile)
+var Version = strings.TrimSpace(versionFile) + buildSuffix
 
 func main() {
 	cfg := LoadConfig()

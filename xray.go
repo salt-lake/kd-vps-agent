@@ -13,6 +13,7 @@ import (
 )
 
 const assetName = "node-agent-xray"
+const buildSuffix = "-xray"
 
 func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher) {
 	if cfg.APIBase == "" || cfg.ScriptToken == "" {
