@@ -72,7 +72,7 @@ type tempUsersData struct {
 
 // fetchTempUsers 拉取临时用户列表。
 func fetchTempUsers(apiBase, token string) (version string, uuids []string, err error) {
-	req, err := http.NewRequest(http.MethodGet, apiBase+"/api/nodes/actions/temp-users", nil)
+	req, err := http.NewRequest(http.MethodGet, apiBase+"/api/agent/temp-users", nil)
 	if err != nil {
 		return "", nil, err
 	}

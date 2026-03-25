@@ -63,7 +63,7 @@ func (m *mockManager) allRemoved() []string {
 // tempServer 启动一个假的 HTTP 服务器，返回固定的 temp-users 响应。
 func tempServer(version string, uuids []string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/nodes/actions/temp-users" {
+		if r.URL.Path != "/api/agent/temp-users" {
 			http.NotFound(w, r)
 			return
 		}
