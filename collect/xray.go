@@ -102,8 +102,27 @@ func xrayConnCount(apiAddr string) string {
 	return strconv.Itoa(count)
 }
 
-// countXrayOnline 统计 downlink 不为 0 的用户条目数
+// countXrayOnline 统计 downlink 不为 0 的用户条目数。
+// 兼容新版 JSON 输出和旧版文本输出两种格式。
 func countXrayOnline(statsOutput string) int {
+	// 尝试 JSON 格式（新版 xray）
+	var resp struct {
+		Stat []struct {
+			Name  string `json:"name"`
+			Value int64  `json:"value"`
+		} `json:"stat"`
+	}
+	if err := json.Unmarshal([]byte(statsOutput), &resp); err == nil {
+		count := 0
+		for _, s := range resp.Stat {
+			if strings.Contains(s.Name, ">>>traffic>>>downlink") && s.Value > 0 {
+				count++
+			}
+		}
+		return count
+	}
+
+	// 回退：旧版文本格式（name value: 123 在同一行）
 	count := 0
 	for _, line := range strings.Split(statsOutput, "\n") {
 		if strings.Contains(line, ">>>traffic>>>downlink") && strings.Contains(line, "value:") {
