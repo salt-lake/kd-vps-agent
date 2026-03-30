@@ -21,25 +21,30 @@ func NewTrafficProvider(iface string) MetricProvider {
 }
 
 func (t *trafficProvider) Collect(p *Payload) {
-	p.D, p.M = t.tr.read()
+	p.D, p.M, p.DR, p.MR = t.tr.read()
 }
 
 // trafficState 持久化到磁盘的状态
 type trafficState struct {
-	DayBytes   int64 `json:"day_bytes"`
-	MonthBytes int64 `json:"month_bytes"`
-	LastDay    int   `json:"last_day"`
-	LastMonth  int   `json:"last_month"`
+	DayBytes     int64 `json:"day_bytes"`
+	MonthBytes   int64 `json:"month_bytes"`
+	DayRxBytes   int64 `json:"day_rx_bytes"`
+	MonthRxBytes int64 `json:"month_rx_bytes"`
+	LastDay      int   `json:"last_day"`
+	LastMonth    int   `json:"last_month"`
 }
 
-// trafficReader 读取 /proc/net/dev 追踪出站流量累积（仅 TX，与平台计费一致）
+// trafficReader 读取 /proc/net/dev 追踪出站（TX）和入站（RX）流量累积
 type trafficReader struct {
-	iface      string
-	prevTx     int64
-	dayBytes   int64
-	monthBytes int64
-	lastDay    int
-	lastMonth  int
+	iface        string
+	prevTx       int64
+	prevRx       int64
+	dayBytes     int64
+	monthBytes   int64
+	dayRxBytes   int64
+	monthRxBytes int64
+	lastDay      int
+	lastMonth    int
 }
 
 func newTrafficReader(iface string) *trafficReader {
@@ -53,22 +58,28 @@ func newTrafficReader(iface string) *trafficReader {
 	if s, err := loadTrafficState(); err == nil {
 		if s.LastDay == now.Day() {
 			tr.dayBytes = s.DayBytes
+			tr.dayRxBytes = s.DayRxBytes
 		}
 		if s.LastMonth == int(now.Month()) {
 			tr.monthBytes = s.MonthBytes
+			tr.monthRxBytes = s.MonthRxBytes
 		}
 	}
-	_, tr.prevTx = readIfaceBytes(iface)
+	tr.prevRx, tr.prevTx = readIfaceBytes(iface)
 	return tr
 }
 
-func (tr *trafficReader) read() (dayGB, monthGB string) {
+func (tr *trafficReader) read() (dayGB, monthGB, dayRxGB, monthRxGB string) {
 	now := time.Now()
-	_, tx := readIfaceBytes(tr.iface)
+	rx, tx := readIfaceBytes(tr.iface)
 
-	delta := tx - tr.prevTx
-	if delta < 0 {
-		delta = 0
+	deltaTx := tx - tr.prevTx
+	if deltaTx < 0 {
+		deltaTx = 0
+	}
+	deltaRx := rx - tr.prevRx
+	if deltaRx < 0 {
+		deltaRx = 0
 	}
 
 	dayReset := now.Day() != tr.lastDay
@@ -76,29 +87,36 @@ func (tr *trafficReader) read() (dayGB, monthGB string) {
 
 	if dayReset {
 		tr.dayBytes = 0
+		tr.dayRxBytes = 0
 		tr.lastDay = now.Day()
 	}
 	if monthReset {
 		tr.monthBytes = 0
+		tr.monthRxBytes = 0
 		tr.lastMonth = int(now.Month())
 	}
 
-	tr.dayBytes += delta
-	tr.monthBytes += delta
+	tr.dayBytes += deltaTx
+	tr.monthBytes += deltaTx
+	tr.dayRxBytes += deltaRx
+	tr.monthRxBytes += deltaRx
 	tr.prevTx = tx
+	tr.prevRx = rx
 
-	if delta > 0 || dayReset || monthReset {
+	if deltaTx > 0 || deltaRx > 0 || dayReset || monthReset {
 		if err := saveTrafficState(trafficState{
-			DayBytes:   tr.dayBytes,
-			MonthBytes: tr.monthBytes,
-			LastDay:    tr.lastDay,
-			LastMonth:  tr.lastMonth,
+			DayBytes:     tr.dayBytes,
+			MonthBytes:   tr.monthBytes,
+			DayRxBytes:   tr.dayRxBytes,
+			MonthRxBytes: tr.monthRxBytes,
+			LastDay:      tr.lastDay,
+			LastMonth:    tr.lastMonth,
 		}); err != nil {
 			log.Printf("traffic: save state err=%v", err)
 		}
 	}
 
-	return bytesToGBStr(tr.dayBytes), bytesToGBStr(tr.monthBytes)
+	return bytesToGBStr(tr.dayBytes), bytesToGBStr(tr.monthBytes), bytesToGBStr(tr.dayRxBytes), bytesToGBStr(tr.monthRxBytes)
 }
 
 func loadTrafficState() (trafficState, error) {

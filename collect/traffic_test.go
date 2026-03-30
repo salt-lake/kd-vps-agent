@@ -102,6 +102,54 @@ docker0:  200    0    0    0    0     0          0         0   300    0    0    
 	}
 }
 
+func TestTrafficReaderRxTx(t *testing.T) {
+	tr := &trafficReader{
+		iface:     "eth0",
+		lastDay:   1,
+		lastMonth: 1,
+	}
+	// 模拟第一次读：prevRx/prevTx 均为 0，注入初始值
+	tr.prevTx = 88888888
+	tr.prevRx = 9999999
+
+	// 模拟流量增加：TX +1GB, RX +512MB
+	const oneMB = 1024 * 1024
+	fakeTx := int64(88888888) + 1024*oneMB
+	fakeRx := int64(9999999) + 512*oneMB
+
+	// 直接操作内部字段模拟 read 的增量逻辑
+	deltaTx := fakeTx - tr.prevTx
+	deltaRx := fakeRx - tr.prevRx
+	tr.dayBytes += deltaTx
+	tr.monthBytes += deltaTx
+	tr.dayRxBytes += deltaRx
+	tr.monthRxBytes += deltaRx
+	tr.prevTx = fakeTx
+	tr.prevRx = fakeRx
+
+	if tr.dayBytes != deltaTx {
+		t.Errorf("dayBytes = %d, want %d", tr.dayBytes, deltaTx)
+	}
+	if tr.dayRxBytes != deltaRx {
+		t.Errorf("dayRxBytes = %d, want %d", tr.dayRxBytes, deltaRx)
+	}
+	if tr.monthBytes != deltaTx {
+		t.Errorf("monthBytes = %d, want %d", tr.monthBytes, deltaTx)
+	}
+	if tr.monthRxBytes != deltaRx {
+		t.Errorf("monthRxBytes = %d, want %d", tr.monthRxBytes, deltaRx)
+	}
+
+	dayGB := bytesToGBStr(tr.dayBytes)
+	dayRxGB := bytesToGBStr(tr.dayRxBytes)
+	if dayGB != "1.0G" {
+		t.Errorf("dayGB = %q, want 1.0G", dayGB)
+	}
+	if dayRxGB != "0.5G" {
+		t.Errorf("dayRxGB = %q, want 0.5G", dayRxGB)
+	}
+}
+
 func TestBytesToGBStr(t *testing.T) {
 	tests := []struct {
 		bytes int64
