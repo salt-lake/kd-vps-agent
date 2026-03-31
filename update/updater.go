@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -56,7 +57,14 @@ func TryUpdate(currentVersion, assetName string) error {
 		return fmt.Errorf("download: %w", err)
 	}
 	log.Println("update success, restarting via systemctl...")
-	if err := exec.Command("systemctl", "restart", "node-agent").Run(); err != nil {
+	err = exec.Command("systemctl", "restart", "node-agent").Run()
+	// systemctl restart 会向当前进程发送 SIGTERM，Run() 因此返回 signal error，属于正常重启流程。
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				return nil
+			}
+		}
 		return fmt.Errorf("systemctl restart node-agent: %w", err)
 	}
 	return nil
