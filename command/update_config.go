@@ -12,6 +12,18 @@ import (
 )
 
 const serviceFilePath = "/etc/systemd/system/node-agent.service"
+const agentEnvFilePath = "/etc/node-agent.env"
+
+// serviceKeyToEnvKey 将 service 文件中的环境变量名映射到 /etc/node-agent.env 中的 key 名。
+// 未在此 map 中的 key（如 SENTRY_DSN）不写入 env 文件。
+var serviceKeyToEnvKey = map[string]string{
+	"NATS_URL":        "NATS_URL",
+	"NATS_AUTH_TOKEN": "NATS_TOKEN",
+	"API_BASE":        "API_BASE",
+	"SCRIPT_TOKEN":    "TOKEN",
+	"NODE_ID":         "NODE_ID",
+	"REPORT_INTERVAL": "INTERVAL",
+}
 
 // allowedEnvKeys 限制可远程更新的环境变量，防止误操作改动节点协议等固定配置。
 var allowedEnvKeys = map[string]bool{
@@ -54,6 +66,9 @@ func (h UpdateConfigHandler) Handle(data []byte) ([]byte, error) {
 	if err := updateServiceEnv(req.Env); err != nil {
 		log.Printf("update_config: update service file err=%v", err)
 		return errResp("update service file failed: " + err.Error()), nil
+	}
+	if err := syncAgentEnvFile(req.Env); err != nil {
+		log.Printf("update_config: sync env file err=%v (non-fatal)", err)
 	}
 
 	log.Printf("update_config: updated keys=%v, scheduling restart", keys(req.Env))
@@ -118,6 +133,43 @@ func updateServiceEnv(env map[string]string) error {
 	if err := os.Rename(tmp, serviceFilePath); err != nil {
 		os.Remove(tmp)
 		return fmt.Errorf("rename service file: %w", err)
+	}
+	return nil
+}
+
+// syncAgentEnvFile 将本次更新的 key 同步回 /etc/node-agent.env，
+// 避免重跑 agent_setup.sh 时用旧值覆盖 update_config 的改动。
+// 文件中不存在的 key 不追加（bootstrap 没写的字段保持不变）。
+func syncAgentEnvFile(env map[string]string) error {
+	data, err := os.ReadFile(agentEnvFilePath)
+	if err != nil {
+		return fmt.Errorf("read env file: %w", err)
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		eqIdx := strings.Index(line, "=")
+		if eqIdx < 0 {
+			continue
+		}
+		fileKey := line[:eqIdx]
+		for svcKey, envKey := range serviceKeyToEnvKey {
+			if fileKey == envKey {
+				if newVal, ok := env[svcKey]; ok {
+					lines[i] = envKey + "=" + newVal
+				}
+				break
+			}
+		}
+	}
+
+	tmp := agentEnvFilePath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strings.Join(lines, "\n")), 0600); err != nil {
+		return fmt.Errorf("write temp env file: %w", err)
+	}
+	if err := os.Rename(tmp, agentEnvFilePath); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("rename env file: %w", err)
 	}
 	return nil
 }
