@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -19,6 +20,11 @@ import (
 var Version = strings.TrimSpace(versionFile) + buildSuffix
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println(Version)
+		return
+	}
+
 	cfg := LoadConfig()
 
 	log.SetOutput(&lumberjack.Logger{

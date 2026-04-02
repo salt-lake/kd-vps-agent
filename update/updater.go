@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -17,6 +18,8 @@ import (
 const repo = "salt-lake/kd-vps-agent"
 
 var httpClient = &http.Client{Timeout: 60 * time.Second}
+
+var updateMu sync.Mutex
 
 // fetchFn / downloadFn 可在测试中替换
 var fetchFn = func(assetName string) (string, error) {
@@ -58,6 +61,11 @@ func baseVersion(v string) string {
 
 // TryUpdate 执行检查并更新，返回 error；已是最新版时返回 nil。
 func TryUpdate(currentVersion, assetName string) error {
+	if !updateMu.TryLock() {
+		return fmt.Errorf("update already in progress")
+	}
+	defer updateMu.Unlock()
+
 	latest, err := fetchFn(assetName)
 	if err != nil {
 		return fmt.Errorf("fetch version: %w", err)
@@ -162,6 +170,11 @@ func downloadAndReplaceFrom(binaryURL, checksumURL string) error {
 	if got != expected {
 		os.Remove(tmp)
 		return fmt.Errorf("checksum mismatch: got %s, want %s", got, expected)
+	}
+
+	if out, err := exec.Command(tmp, "--version").Output(); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("new binary sanity check failed (output=%s): %w", strings.TrimSpace(string(out)), err)
 	}
 
 	if err := os.Rename(tmp, self); err != nil {
