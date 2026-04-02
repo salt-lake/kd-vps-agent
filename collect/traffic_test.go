@@ -48,7 +48,7 @@ func TestParseIfaceBytes(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rx, tx := parseIfaceBytes(tc.iface, sampleNetDev)
+			rx, tx, _ := parseIfaceBytes(tc.iface, sampleNetDev)
 			if rx != tc.wantRx || tx != tc.wantTx {
 				t.Errorf("parseIfaceBytes(%q) rx=%d tx=%d, want rx=%d tx=%d",
 					tc.iface, rx, tx, tc.wantRx, tc.wantTx)
