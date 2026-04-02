@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"log"
 	"os/exec"
 
@@ -11,6 +12,9 @@ import (
 	"github.com/salt-lake/kd-vps-agent/command"
 	"github.com/salt-lake/kd-vps-agent/update"
 )
+
+//go:embed version-ikev2.txt
+var versionFile string
 
 const assetName = "node-agent-ikev2"
 const buildSuffix = "-ikev2"

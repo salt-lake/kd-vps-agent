@@ -18,6 +18,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build node-agent (ikev2)
+        if: ${{ !endsWith(github.ref_name, '-xray') }}
         env:
           GOOS: linux
           GOARCH: amd64
@@ -34,7 +35,5 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            node-agent-ikev2
-            node-agent-xray
+          files: node-agent-*
           generate_release_notes: true

@@ -11,8 +11,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/getsentry/sentry-go"
 )
 
 const repo = "salt-lake/kd-vps-agent"
@@ -20,9 +18,9 @@ const repo = "salt-lake/kd-vps-agent"
 var httpClient = &http.Client{Timeout: 60 * time.Second}
 
 // fetchFn / downloadFn 可在测试中替换
-var fetchFn = func() (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	return fetchLatestVersionFrom(url)
+var fetchFn = func(assetName string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=10", repo)
+	return fetchLatestVersionFor(url, assetName)
 }
 
 var downloadFn = func(tag, assetName string) error {
@@ -31,25 +29,39 @@ var downloadFn = func(tag, assetName string) error {
 }
 
 type ghRelease struct {
-	TagName string `json:"tag_name"`
+	TagName string    `json:"tag_name"`
+	Assets  []ghAsset `json:"assets"`
 }
 
-// CheckAndUpdate 检查 GitHub 最新 Release，若版本不同则下载并重启
+type ghAsset struct {
+	Name string `json:"name"`
+}
+
+// CheckAndUpdate 检查 GitHub 最新 Release，若版本不同则下载并重启。
+// 下载失败只打本地日志，不上报 Sentry，保持原 binary 不变。
 func CheckAndUpdate(currentVersion, assetName string) {
 	if err := TryUpdate(currentVersion, assetName); err != nil {
-		log.Printf("check update failed: %v", err)
-		sentry.CaptureException(err)
+		log.Printf("check update failed (keeping current version): %v", err)
 	}
+}
+
+// baseVersion 去掉 v 前缀和 build suffix（如 -ikev2、-xray），用于与 GitHub tag 比较。
+func baseVersion(v string) string {
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.Index(v, "-"); i >= 0 {
+		v = v[:i]
+	}
+	return v
 }
 
 // TryUpdate 执行检查并更新，返回 error；已是最新版时返回 nil。
 func TryUpdate(currentVersion, assetName string) error {
-	latest, err := fetchFn()
+	latest, err := fetchFn(assetName)
 	if err != nil {
 		return fmt.Errorf("fetch version: %w", err)
 	}
-	// 统一去掉 v 前缀再比较（tag 可能是 v1.0.3，version.txt 是 1.0.3）
-	if strings.TrimPrefix(latest, "v") == strings.TrimPrefix(currentVersion, "v") {
+	// 统一去掉 v 前缀和 build suffix 再比较
+	if baseVersion(latest) == baseVersion(currentVersion) {
 		return nil
 	}
 	log.Printf("update available: %s -> %s, downloading...", currentVersion, latest)
@@ -70,7 +82,9 @@ func TryUpdate(currentVersion, assetName string) error {
 	return nil
 }
 
-func fetchLatestVersionFrom(url string) (string, error) {
+// fetchLatestVersionFor 扫描最近 releases，返回第一个包含指定 asset 的 release tag。
+// 这样 xray-only 发版时，ikev2 节点找到的仍是上一个含 ikev2 asset 的版本，不会误触发更新。
+func fetchLatestVersionFor(url, assetName string) (string, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -84,11 +98,18 @@ func fetchLatestVersionFrom(url string) (string, error) {
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("github releases returned %d", resp.StatusCode)
 	}
-	var r ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+	var releases []ghRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return "", err
 	}
-	return r.TagName, nil
+	for _, r := range releases {
+		for _, a := range r.Assets {
+			if a.Name == assetName {
+				return r.TagName, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no release found containing asset %q", assetName)
 }
 
 func downloadAndReplaceFrom(url string) error {
@@ -111,12 +132,16 @@ func downloadAndReplaceFrom(url string) error {
 	if err != nil {
 		return fmt.Errorf("create tmp file: %w", err)
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return fmt.Errorf("download binary: %w", err)
-	}
+	n, copyErr := io.Copy(f, resp.Body)
 	f.Close()
+	if copyErr != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("download binary: %w", copyErr)
+	}
+	if resp.ContentLength > 0 && n != resp.ContentLength {
+		os.Remove(tmp)
+		return fmt.Errorf("download binary: incomplete (%d/%d bytes)", n, resp.ContentLength)
+	}
 
 	if err := os.Rename(tmp, self); err != nil {
 		os.Remove(tmp)

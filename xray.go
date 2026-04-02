@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"log"
 
 	"github.com/salt-lake/kd-vps-agent/collect"
@@ -11,6 +12,9 @@ import (
 	"github.com/salt-lake/kd-vps-agent/update"
 	"github.com/salt-lake/kd-vps-agent/xray"
 )
+
+//go:embed version-xray.txt
+var versionFile string
 
 const assetName = "node-agent-xray"
 const buildSuffix = "-xray"

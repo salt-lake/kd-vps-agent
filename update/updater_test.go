@@ -15,7 +15,7 @@ func withHTTPClient(srv *httptest.Server, f func()) {
 	f()
 }
 
-func withFetchFn(fn func() (string, error), f func()) {
+func withFetchFn(fn func(assetName string) (string, error), f func()) {
 	orig := fetchFn
 	fetchFn = fn
 	defer func() { fetchFn = orig }()
@@ -29,41 +29,73 @@ func withDownloadFn(fn func(string, string) error, f func()) {
 	f()
 }
 
-// --- fetchLatestVersionFrom ---
+// --- fetchLatestVersionFor ---
 
-func TestFetchLatestVersionFrom_Success(t *testing.T) {
+func TestFetchLatestVersionFor_Success(t *testing.T) {
+	releases := []ghRelease{
+		{TagName: "v1.2.3-xray", Assets: []ghAsset{{Name: "node-agent-xray"}}},
+		{TagName: "v1.2.2", Assets: []ghAsset{{Name: "node-agent-ikev2"}, {Name: "node-agent-xray"}}},
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		_ = json.NewEncoder(w).Encode(ghRelease{TagName: "v1.2.3"})
+		_ = json.NewEncoder(w).Encode(releases)
 	}))
 	defer srv.Close()
 
 	withHTTPClient(srv, func() {
-		tag, err := fetchLatestVersionFrom(srv.URL + "/releases/latest")
+		// xray 节点应找到最新的含 xray asset 的 release
+		tag, err := fetchLatestVersionFor(srv.URL, "node-agent-xray")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if tag != "v1.2.3" {
-			t.Errorf("got %q, want %q", tag, "v1.2.3")
+		if tag != "v1.2.3-xray" {
+			t.Errorf("got %q, want %q", tag, "v1.2.3-xray")
+		}
+
+		// ikev2 节点跳过 xray-only release，找到含 ikev2 asset 的版本
+		tag, err = fetchLatestVersionFor(srv.URL, "node-agent-ikev2")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tag != "v1.2.2" {
+			t.Errorf("got %q, want %q", tag, "v1.2.2")
 		}
 	})
 }
 
-func TestFetchLatestVersionFrom_NonOK(t *testing.T) {
+func TestFetchLatestVersionFor_NoMatchingAsset(t *testing.T) {
+	releases := []ghRelease{
+		{TagName: "v1.2.3", Assets: []ghAsset{{Name: "node-agent-xray"}}},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(releases)
+	}))
+	defer srv.Close()
+
+	withHTTPClient(srv, func() {
+		_, err := fetchLatestVersionFor(srv.URL, "node-agent-ikev2")
+		if err == nil {
+			t.Fatal("expected error when no matching asset found")
+		}
+	})
+}
+
+func TestFetchLatestVersionFor_NonOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 	}))
 	defer srv.Close()
 
 	withHTTPClient(srv, func() {
-		_, err := fetchLatestVersionFrom(srv.URL)
+		_, err := fetchLatestVersionFor(srv.URL, "node-agent-ikev2")
 		if err == nil {
 			t.Fatal("expected error for 404")
 		}
 	})
 }
 
-func TestFetchLatestVersionFrom_InvalidJSON(t *testing.T) {
+func TestFetchLatestVersionFor_InvalidJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte("not-json"))
@@ -71,20 +103,20 @@ func TestFetchLatestVersionFrom_InvalidJSON(t *testing.T) {
 	defer srv.Close()
 
 	withHTTPClient(srv, func() {
-		_, err := fetchLatestVersionFrom(srv.URL)
+		_, err := fetchLatestVersionFor(srv.URL, "node-agent-ikev2")
 		if err == nil {
 			t.Fatal("expected JSON parse error")
 		}
 	})
 }
 
-func TestFetchLatestVersionFrom_NetworkError(t *testing.T) {
+func TestFetchLatestVersionFor_NetworkError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	url := srv.URL
-	srv.Close() // 关闭后再请求，模拟网络错误
+	srv.Close()
 
 	withHTTPClient(srv, func() {
-		_, err := fetchLatestVersionFrom(url)
+		_, err := fetchLatestVersionFor(url, "node-agent-ikev2")
 		if err == nil {
 			t.Fatal("expected network error")
 		}
@@ -123,7 +155,7 @@ func TestDownloadAndReplaceFrom_NetworkError(t *testing.T) {
 // --- TryUpdate ---
 
 func TestTryUpdate_AlreadyUpToDate(t *testing.T) {
-	withFetchFn(func() (string, error) { return "v1.0.3", nil }, func() {
+	withFetchFn(func(_ string) (string, error) { return "v1.0.3", nil }, func() {
 		if err := TryUpdate("1.0.3", "node-agent-ikev2"); err != nil {
 			t.Fatalf("expected nil, got %v", err)
 		}
@@ -131,7 +163,7 @@ func TestTryUpdate_AlreadyUpToDate(t *testing.T) {
 }
 
 func TestTryUpdate_AlreadyUpToDate_BothVPrefix(t *testing.T) {
-	withFetchFn(func() (string, error) { return "v2.0.0", nil }, func() {
+	withFetchFn(func(_ string) (string, error) { return "v2.0.0", nil }, func() {
 		if err := TryUpdate("v2.0.0", "node-agent-ikev2"); err != nil {
 			t.Fatalf("expected nil, got %v", err)
 		}
@@ -139,7 +171,7 @@ func TestTryUpdate_AlreadyUpToDate_BothVPrefix(t *testing.T) {
 }
 
 func TestTryUpdate_FetchError(t *testing.T) {
-	withFetchFn(func() (string, error) { return "", fmt.Errorf("network down") }, func() {
+	withFetchFn(func(_ string) (string, error) { return "", fmt.Errorf("network down") }, func() {
 		err := TryUpdate("1.0.0", "node-agent-ikev2")
 		if err == nil {
 			t.Fatal("expected error")
@@ -148,7 +180,7 @@ func TestTryUpdate_FetchError(t *testing.T) {
 }
 
 func TestTryUpdate_DownloadError(t *testing.T) {
-	withFetchFn(func() (string, error) { return "v1.0.9", nil }, func() {
+	withFetchFn(func(_ string) (string, error) { return "v1.0.9", nil }, func() {
 		withDownloadFn(func(tag, asset string) error {
 			return fmt.Errorf("download failed")
 		}, func() {
@@ -161,7 +193,7 @@ func TestTryUpdate_DownloadError(t *testing.T) {
 }
 
 func TestTryUpdate_DownloadCalledWithCorrectArgs(t *testing.T) {
-	withFetchFn(func() (string, error) { return "v1.5.0", nil }, func() {
+	withFetchFn(func(_ string) (string, error) { return "v1.5.0", nil }, func() {
 		var gotTag, gotAsset string
 		withDownloadFn(func(tag, asset string) error {
 			gotTag, gotAsset = tag, asset
@@ -176,4 +208,19 @@ func TestTryUpdate_DownloadCalledWithCorrectArgs(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestTryUpdate_FetchPassesAssetName(t *testing.T) {
+	var gotAsset string
+	withFetchFn(func(assetName string) (string, error) {
+		gotAsset = assetName
+		return "v9.9.9", nil
+	}, func() {
+		withDownloadFn(func(_, _ string) error { return fmt.Errorf("stop") }, func() {
+			_ = TryUpdate("1.0.0", "node-agent-xray")
+		})
+	})
+	if gotAsset != "node-agent-xray" {
+		t.Errorf("fetchFn received asset %q, want %q", gotAsset, "node-agent-xray")
+	}
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"log"
 	"os"
 	"os/signal"
@@ -16,9 +15,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-//go:embed version.txt
-var versionFile string
-
+// versionFile 由各 build 文件（ikev2.go / xray.go）通过 //go:embed 注入
 var Version = strings.TrimSpace(versionFile) + buildSuffix
 
 func main() {
