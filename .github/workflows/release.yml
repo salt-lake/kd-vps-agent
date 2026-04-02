@@ -33,6 +33,11 @@ jobs:
           CGO_ENABLED: 0
         run: go build -trimpath -ldflags="-s -w" -tags xray -o node-agent-xray .
 
+      - name: Generate checksums
+        run: |
+          [ -f node-agent-ikev2 ] && sha256sum node-agent-ikev2 > node-agent-ikev2.sha256 || true
+          [ -f node-agent-xray  ] && sha256sum node-agent-xray  > node-agent-xray.sha256  || true
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:

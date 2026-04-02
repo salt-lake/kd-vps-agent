@@ -186,7 +186,7 @@ docker exec strongswan ipsec version
 | 任务 | 触发时间 | 说明 |
 |------|---------|------|
 | ClearCharonLog（清日志） | 每日 04:00 CST | 清空 StrongSwan charon 日志 |
-| VersionCheck（版本检查） | 每小时 | 检查 GitHub Releases 是否有新版本 |
+| VersionCheck（版本检查） | 每日 02:00 CST | 检查 GitHub Releases 是否有新版本 |
 | 指标上报 | 每 `REPORT_INTERVAL` | 采集并发送到 NATS |
 
 > FullSync（03:00 CST）是 xray 模式专属，IKEv2 模式下该任务传入 `nil` 直接跳过。
@@ -207,7 +207,7 @@ docker exec strongswan sh -c "test -f /var/log/charon.log && truncate -s 0 /var/
 
 ## 六、自更新机制
 
-agent 每小时检查 GitHub Releases 最新版本，也可通过 `agent:self_update` 指令主动触发。
+agent 每天北京时间 02:00（含随机 jitter）检查 GitHub Releases 最新版本，也可通过 `agent:self_update` 指令主动触发。
 
 **版本比较：** 去掉 `v` 前缀后比较（兼容 GitHub tag `v1.0.5` 与 `version.txt` 中的 `1.0.5`）。
 

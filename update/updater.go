@@ -1,6 +1,7 @@
 package update
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,13 +20,14 @@ var httpClient = &http.Client{Timeout: 60 * time.Second}
 
 // fetchFn / downloadFn 可在测试中替换
 var fetchFn = func(assetName string) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=10", repo)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=20", repo)
 	return fetchLatestVersionFor(url, assetName)
 }
 
 var downloadFn = func(tag, assetName string) error {
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, assetName)
-	return downloadAndReplaceFrom(url)
+	binaryURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, assetName)
+	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.sha256", repo, tag, assetName)
+	return downloadAndReplaceFrom(binaryURL, checksumURL)
 }
 
 type ghRelease struct {
@@ -84,6 +86,7 @@ func TryUpdate(currentVersion, assetName string) error {
 
 // fetchLatestVersionFor 扫描最近 releases，返回第一个包含指定 asset 的 release tag。
 // 这样 xray-only 发版时，ikev2 节点找到的仍是上一个含 ikev2 asset 的版本，不会误触发更新。
+// tag 命名约定（-xray / -ikev2 后缀）用于快速跳过明确不含目标 asset 的 release。
 func fetchLatestVersionFor(url, assetName string) (string, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -103,6 +106,12 @@ func fetchLatestVersionFor(url, assetName string) (string, error) {
 		return "", err
 	}
 	for _, r := range releases {
+		if strings.HasSuffix(r.TagName, "-xray") && assetName == "node-agent-ikev2" {
+			continue
+		}
+		if strings.HasSuffix(r.TagName, "-ikev2") && assetName == "node-agent-xray" {
+			continue
+		}
 		for _, a := range r.Assets {
 			if a.Name == assetName {
 				return r.TagName, nil
@@ -112,8 +121,8 @@ func fetchLatestVersionFor(url, assetName string) (string, error) {
 	return "", fmt.Errorf("no release found containing asset %q", assetName)
 }
 
-func downloadAndReplaceFrom(url string) error {
-	resp, err := httpClient.Get(url)
+func downloadAndReplaceFrom(binaryURL, checksumURL string) error {
+	resp, err := httpClient.Get(binaryURL)
 	if err != nil {
 		return err
 	}
@@ -132,7 +141,8 @@ func downloadAndReplaceFrom(url string) error {
 	if err != nil {
 		return fmt.Errorf("create tmp file: %w", err)
 	}
-	n, copyErr := io.Copy(f, resp.Body)
+	h := sha256.New()
+	n, copyErr := io.Copy(io.MultiWriter(f, h), resp.Body)
 	f.Close()
 	if copyErr != nil {
 		os.Remove(tmp)
@@ -143,9 +153,46 @@ func downloadAndReplaceFrom(url string) error {
 		return fmt.Errorf("download binary: incomplete (%d/%d bytes)", n, resp.ContentLength)
 	}
 
+	expected, err := fetchChecksum(checksumURL)
+	if err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("fetch checksum: %w", err)
+	}
+	got := fmt.Sprintf("%x", h.Sum(nil))
+	if got != expected {
+		os.Remove(tmp)
+		return fmt.Errorf("checksum mismatch: got %s, want %s", got, expected)
+	}
+
 	if err := os.Rename(tmp, self); err != nil {
 		os.Remove(tmp)
 		return fmt.Errorf("replace binary: %w", err)
 	}
 	return nil
+}
+
+// fetchChecksum 下载 .sha256 文件，返回十六进制 hash 字符串。
+// sha256sum 输出格式：<64-hex>  <filename>
+func fetchChecksum(url string) (string, error) {
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("fetch checksum returned %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(string(body))
+	if len(fields) == 0 {
+		return "", fmt.Errorf("empty checksum file")
+	}
+	hash := strings.ToLower(fields[0])
+	if len(hash) != 64 {
+		return "", fmt.Errorf("invalid checksum format")
+	}
+	return hash, nil
 }

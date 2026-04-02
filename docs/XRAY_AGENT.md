@@ -242,7 +242,7 @@ docker exec xray xray api statsquery --server=127.0.0.1:10085 --pattern 'user>>>
 | ClearLog（清日志） | 每日 04:00 CST | docker exec 清空 `/var/log/charon.log` |
 | DeltaSync（增量同步） | 每小时 | 拉增量用户变更并应用 |
 | CheckDest（dest 检测） | 每 5 分钟 | Reality dest 可达性检测 |
-| VersionCheck（版本检查） | 每小时 | 从 GitHub Releases 检查更新 |
+| VersionCheck（版本检查） | 每日 02:00 CST | 从 GitHub Releases 检查更新 |
 | Startup 重试 | 启动失败时，每 30 秒 | 重试 StartupSync 直到成功 |
 | 指标上报 | 每 `REPORT_INTERVAL` | 采集并发送到 NATS |
 
@@ -258,7 +258,7 @@ docker exec xray xray api statsquery --server=127.0.0.1:10085 --pattern 'user>>>
 
 ## 九、自更新
 
-agent 每小时检查 GitHub Releases 最新版本。也可通过 NATS 指令 `agent:self_update` 主动触发。
+agent 每天北京时间 02:00（含随机 jitter）检查 GitHub Releases 最新版本。也可通过 NATS 指令 `agent:self_update` 主动触发。
 
 更新流程：下载新二进制 → 替换自身 → 重启进程。
 

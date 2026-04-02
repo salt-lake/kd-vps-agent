@@ -213,7 +213,7 @@ curl -fsSL \
 
 ### 定期检查
 
-主循环每小时触发一次 `update.CheckAndUpdate(Version)`，也可通过 `agent:self_update` 指令立即触发。
+`dailyScheduler` 每天北京时间 02:00（含随机 jitter）触发 `update.CheckAndUpdate(Version)`，也可通过 `agent:self_update` 指令立即触发。
 
 ### 更新流程
 

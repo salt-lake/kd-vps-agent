@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +60,41 @@ func TestFetchLatestVersionFor_Success(t *testing.T) {
 		}
 		if tag != "v1.2.2" {
 			t.Errorf("got %q, want %q", tag, "v1.2.2")
+		}
+	})
+}
+
+func TestFetchLatestVersionFor_TagFilter(t *testing.T) {
+	// 前两个都是 protocol-only tag，应被快速跳过，找到第三个
+	releases := []ghRelease{
+		{TagName: "v1.3.0-xray", Assets: []ghAsset{{Name: "node-agent-xray"}}},
+		{TagName: "v1.2.9-xray", Assets: []ghAsset{{Name: "node-agent-xray"}}},
+		{TagName: "v1.2.8-ikev2", Assets: []ghAsset{{Name: "node-agent-ikev2"}}},
+		{TagName: "v1.2.7", Assets: []ghAsset{{Name: "node-agent-ikev2"}, {Name: "node-agent-xray"}}},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(releases)
+	}))
+	defer srv.Close()
+
+	withHTTPClient(srv, func() {
+		// xray 节点：跳过 -ikev2 tag，找到第一个 -xray tag
+		tag, err := fetchLatestVersionFor(srv.URL, "node-agent-xray")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tag != "v1.3.0-xray" {
+			t.Errorf("got %q, want %q", tag, "v1.3.0-xray")
+		}
+
+		// ikev2 节点：跳过所有 -xray tag，找到 -ikev2 tag
+		tag, err = fetchLatestVersionFor(srv.URL, "node-agent-ikev2")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tag != "v1.2.8-ikev2" {
+			t.Errorf("got %q, want %q", tag, "v1.2.8-ikev2")
 		}
 	})
 }
@@ -132,7 +168,7 @@ func TestDownloadAndReplaceFrom_NonOK(t *testing.T) {
 	defer srv.Close()
 
 	withHTTPClient(srv, func() {
-		err := downloadAndReplaceFrom(srv.URL + "/binary")
+		err := downloadAndReplaceFrom(srv.URL+"/binary", srv.URL+"/binary.sha256")
 		if err == nil {
 			t.Fatal("expected error for 403")
 		}
@@ -145,9 +181,33 @@ func TestDownloadAndReplaceFrom_NetworkError(t *testing.T) {
 	srv.Close()
 
 	withHTTPClient(srv, func() {
-		err := downloadAndReplaceFrom(url)
+		err := downloadAndReplaceFrom(url, url+".sha256")
 		if err == nil {
 			t.Fatal("expected network error")
+		}
+	})
+}
+
+func TestDownloadAndReplaceFrom_ChecksumMismatch(t *testing.T) {
+	content := []byte("fake binary content")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".sha256") {
+			// 返回错误的 checksum
+			fmt.Fprintf(w, "%s  node-agent-ikev2\n", strings.Repeat("0", 64))
+			return
+		}
+		w.WriteHeader(200)
+		w.Write(content)
+	}))
+	defer srv.Close()
+
+	withHTTPClient(srv, func() {
+		err := downloadAndReplaceFrom(srv.URL+"/binary", srv.URL+"/binary.sha256")
+		if err == nil {
+			t.Fatal("expected checksum mismatch error")
+		}
+		if !strings.Contains(err.Error(), "checksum mismatch") {
+			t.Errorf("unexpected error: %v", err)
 		}
 	})
 }
