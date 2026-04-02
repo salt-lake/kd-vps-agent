@@ -74,6 +74,7 @@ func main() {
 	dispatcher.Register(command.NewSwanUpdateHandler(cfg.SwanContainer, cfg.SwanImage))
 	dispatcher.Register(command.BootstrapHandler{})
 	dispatcher.Register(command.SelfUpdateHandler{CurrentVersion: Version, AssetName: assetName})
+	dispatcher.Register(command.UpdateConfigHandler{})
 
 	setupXray(ctx, cfg, dispatcher)
 

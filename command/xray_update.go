@@ -71,9 +71,12 @@ func (h XrayUpdateHandler) Handle(data []byte) ([]byte, error) {
 		log.Printf("xray_update: config merged")
 	}
 
-	if out, err := exec.Command("systemctl", "restart", "xray").CombinedOutput(); err != nil {
-		log.Printf("xray_update: systemctl restart xray failed: %v, output: %s", err, out)
-		return errResp(fmt.Sprintf("restart xray failed: %v", err)), nil
+	restartCtx, restartCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	restartOut, restartErr := exec.CommandContext(restartCtx, "systemctl", "restart", "xray").CombinedOutput()
+	restartCancel()
+	if restartErr != nil {
+		log.Printf("xray_update: systemctl restart xray failed: %v, output: %s", restartErr, restartOut)
+		return errResp(fmt.Sprintf("restart xray failed: %v", restartErr)), nil
 	}
 	log.Printf("xray_update: xray restarted, triggering resync")
 	go h.syncer.TriggerResync(h.ctx)

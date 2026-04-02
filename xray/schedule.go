@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"sync/atomic"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -35,8 +36,11 @@ func (s *XrayUserSync) StartupSync() error {
 	}
 
 	log.Printf("xray_sync: gRPC unavailable or inject failed, falling back to systemctl restart xray")
-	if out, err := exec.Command("systemctl", "restart", "xray").CombinedOutput(); err != nil {
-		return fmt.Errorf("systemctl restart xray: %v, output: %s", err, out)
+	restartCtx, restartCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	out, restartErr := exec.CommandContext(restartCtx, "systemctl", "restart", "xray").CombinedOutput()
+	restartCancel()
+	if restartErr != nil {
+		return fmt.Errorf("systemctl restart xray: %v, output: %s", restartErr, out)
 	}
 
 	s.mu.Lock()
@@ -214,12 +218,22 @@ func (s *XrayUserSync) watchXrayHealth(ctx context.Context) {
 				s.xrayAPI = nil
 			}
 			s.mu.Unlock()
-			if out, err := exec.Command("systemctl", "restart", "xray").CombinedOutput(); err != nil {
-				log.Printf("xray_sync: systemctl restart xray failed: %v, output: %s", err, out)
-				sentry.CaptureException(fmt.Errorf("systemctl restart xray: %w, output: %s", err, out))
+			restartCtx, restartCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			restartOut, restartErr := exec.CommandContext(restartCtx, "systemctl", "restart", "xray").CombinedOutput()
+			restartCancel()
+			if restartErr != nil {
+				log.Printf("xray_sync: systemctl restart xray failed: %v, output: %s", restartErr, restartOut)
+				sentry.CaptureException(fmt.Errorf("systemctl restart xray: %w, output: %s", restartErr, restartOut))
 				continue
 			}
-			go s.syncAfterRestart(ctx)
+			if atomic.CompareAndSwapInt32(&s.restartSyncInFlight, 0, 1) {
+				go func() {
+					defer atomic.StoreInt32(&s.restartSyncInFlight, 0)
+					s.syncAfterRestart(ctx)
+				}()
+			} else {
+				log.Printf("xray_sync: syncAfterRestart already in flight, skipping")
+			}
 		}
 	}
 }

@@ -24,10 +24,11 @@ type XrayUserSync struct {
 	apiAddr    string
 	inboundTag string
 	configPath string
-	mu         sync.Mutex
-	current    map[string]struct{}
-	xrayAPI    XrayAPI
-	tempSync   *TempUserSync
+	mu                  sync.Mutex
+	current             map[string]struct{}
+	xrayAPI             XrayAPI
+	tempSync            *TempUserSync
+	restartSyncInFlight int32 // atomic: 1 if syncAfterRestart goroutine is running
 }
 
 // SetTempSync 注入临时用户同步器，供 xray 重启后重注入临时用户。

@@ -72,7 +72,10 @@ func (s *XrayUserSync) AddUser(uuid string) error {
 	if err := api.AddOrReplace(ctx, &User{ID: uuid, UUID: uuid, Flow: "xtls-rprx-vision"}); err != nil {
 		if strings.Contains(err.Error(), "connection") || strings.Contains(err.Error(), "unavailable") {
 			s.mu.Lock()
-			s.xrayAPI = nil
+			if s.xrayAPI == api {
+				_ = s.xrayAPI.Close()
+				s.xrayAPI = nil
+			}
 			s.mu.Unlock()
 		}
 		return fmt.Errorf("AddUser uuid=%s: %w", uuid, err)
@@ -96,7 +99,10 @@ func (s *XrayUserSync) RemoveUser(uuid string) error {
 	if err := api.RemoveUserById(ctx, uuid); err != nil {
 		if strings.Contains(err.Error(), "connection") || strings.Contains(err.Error(), "unavailable") {
 			s.mu.Lock()
-			s.xrayAPI = nil
+			if s.xrayAPI == api {
+				_ = s.xrayAPI.Close()
+				s.xrayAPI = nil
+			}
 			s.mu.Unlock()
 		}
 		return fmt.Errorf("RemoveUser uuid=%s: %w", uuid, err)
