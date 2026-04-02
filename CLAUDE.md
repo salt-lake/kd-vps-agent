@@ -18,7 +18,8 @@ kd-vps-agent/
 ├── main.go           # 入口：NATS 连接、主循环、dailyScheduler 工具函数
 ├── ikev2.go          # !xray 构建：setupXray stub、buildProviders、startDailyJobs
 ├── xray.go           # xray 构建：setupXray 实现、buildProviders、startDailyJobs
-├── version.txt       # 版本号（go:embed 嵌入二进制），格式：1.0.3（无 v 前缀）
+├── version-ikev2.txt # ikev2 构建版本号（go:embed 嵌入二进制），格式：1.0.3（无 v 前缀）
+├── version-xray.txt  # xray 构建版本号（go:embed 嵌入二进制），格式：1.0.3（无 v 前缀）
 ├── collect/
 │   ├── collector.go  # Payload 结构、MetricProvider 接口、Collector 组合
 │   ├── sys.go        # CPU(/proc/stat)、内存(/proc/meminfo)、磁盘(syscall.Statfs)
@@ -120,11 +121,11 @@ GOOS=linux GOARCH=amd64 go build -tags xray -o node-agent-xray .
 
 ### 正式发布
 
-版本号唯一来源：`version.txt`（格式 `1.0.5`，无 `v` 前缀）。
+版本号来源：`version-ikev2.txt` 和 `version-xray.txt`（格式 `1.0.5`，无 `v` 前缀），两个文件需保持一致。
 
 ```bash
-echo "1.0.6" > version.txt
-git add version.txt && git commit -m "chore: bump version to 1.0.6"
+echo "1.0.6" > version-ikev2.txt && echo "1.0.6" > version-xray.txt
+git add version-ikev2.txt version-xray.txt && git commit -m "chore: bump version to 1.0.6"
 git tag v1.0.6 && git push origin v1.0.6
 ```
 
