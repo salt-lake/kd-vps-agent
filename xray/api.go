@@ -15,8 +15,11 @@ import (
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 var apiRetryDelay = 5 * time.Second
 
-// doWithRetry 对网络错误最多重试 maxRetries 次，每次间隔 retryDelay。
-// 业务错误（HTTP 状态码异常、JSON 解析失败）不重试。
+// retryableError 标记可重试的非网络错误（如 HTTP 5xx）。
+type retryableError struct{ error }
+
+// doWithRetry 对网络错误和 retryableError 最多重试 maxRetries 次，每次间隔 retryDelay。
+// 其余错误不重试。
 func doWithRetry(maxRetries int, retryDelay time.Duration, fn func() error) error {
 	var err error
 	for i := range maxRetries + 1 {
@@ -25,14 +28,27 @@ func doWithRetry(maxRetries int, retryDelay time.Duration, fn func() error) erro
 			return nil
 		}
 		var netErr interface{ Timeout() bool }
-		isNetwork := errors.As(err, &netErr) || errors.Is(err, io.EOF)
-		if !isNetwork {
+		var retryErr retryableError
+		canRetry := errors.As(err, &netErr) || errors.Is(err, io.EOF) || errors.As(err, &retryErr)
+		if !canRetry {
 			return err
 		}
 		if i < maxRetries {
 			log.Printf("api: request failed (attempt %d/%d): %v, retrying in %s", i+1, maxRetries+1, err, retryDelay)
 			time.Sleep(retryDelay)
 		}
+	}
+	return err
+}
+
+// checkHTTPStatus 检查 HTTP 响应状态码，5xx 返回可重试错误，其他非 2xx 返回不可重试错误。
+func checkHTTPStatus(resp *http.Response) error {
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	err := fmt.Errorf("http %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+	if resp.StatusCode >= 500 {
+		return retryableError{err}
 	}
 	return err
 }
@@ -71,6 +87,10 @@ func (s *XrayUserSync) fetchUsers() ([]userDTO, error) {
 			return err
 		}
 		defer resp.Body.Close()
+
+		if err := checkHTTPStatus(resp); err != nil {
+			return fmt.Errorf("fetch users: %w", err)
+		}
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -117,6 +137,10 @@ func fetchTempUsers(apiBase, token string) (version string, uuids []string, err 
 		}
 		defer resp.Body.Close()
 
+		if err := checkHTTPStatus(resp); err != nil {
+			return fmt.Errorf("fetch temp users: %w", err)
+		}
+
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return err
@@ -151,6 +175,10 @@ func (s *XrayUserSync) fetchDelta(since int64) (*deltaData, error) {
 			return err
 		}
 		defer resp.Body.Close()
+
+		if err := checkHTTPStatus(resp); err != nil {
+			return fmt.Errorf("fetch delta: %w", err)
+		}
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
