@@ -86,7 +86,7 @@ type Handler interface {
 | `SWAN_IMAGE` | `mooc1988/swan:latest` | StrongSwan 默认镜像；swan_update 未传 image 时使用 |
 | `XRAY_CONTAINER` | `xray` | Xray 容器名 |
 | `XRAY_API_ADDR` | `127.0.0.1:10085` | Xray stats API 地址 |
-| `XRAY_INBOUND_TAG` | `vless` | Xray 入站 tag |
+| `XRAY_INBOUND_TAG` | `proxy` | Xray 入站 tag |
 | `XRAY_CONFIG_PATH` | `/etc/xray/config.json` | Xray 配置文件路径 |
 | `REPORT_INTERVAL` | `2m` | 上报间隔（Go duration 格式） |
 | `API_BASE` | — | 后端 API 基地址（xray 用户同步需要） |

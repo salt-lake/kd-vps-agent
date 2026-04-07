@@ -25,7 +25,7 @@
 | `NODE_PROTOCOL` | | `ikev2` | 协议类型：`ikev2` 或 `xray` |
 | `XRAY_CONTAINER` | | `xray` | Xray Docker 容器名 |
 | `XRAY_API_ADDR` | | `127.0.0.1:10085` | Xray gRPC API 地址 |
-| `XRAY_INBOUND_TAG` | | `vless` | Xray inbound 标签 |
+| `XRAY_INBOUND_TAG` | | `proxy` | Xray inbound 标签 |
 | `XRAY_CONFIG_PATH` | | `/etc/xray/config.json` | Xray 配置文件路径 |
 | `SWAN_CONTAINER` | | `strongswan` | StrongSwan 容器名（ikev2 模式） |
 | `REPORT_INTERVAL` | | `2m` | 指标上报间隔（Go duration 格式） |
