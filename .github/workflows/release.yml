@@ -3,7 +3,8 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*-ikev2'
+      - 'v*-xray'
 
 jobs:
   build:
@@ -18,7 +19,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build node-agent (ikev2)
-        if: ${{ !endsWith(github.ref_name, '-xray') }}
+        if: ${{ endsWith(github.ref_name, '-ikev2') }}
         env:
           GOOS: linux
           GOARCH: amd64
@@ -26,7 +27,7 @@ jobs:
         run: go build -trimpath -ldflags="-s -w" -o node-agent-ikev2 .
 
       - name: Build node-agent-xray
-        if: ${{ !endsWith(github.ref_name, '-ikev2') }}
+        if: ${{ endsWith(github.ref_name, '-xray') }}
         env:
           GOOS: linux
           GOARCH: amd64

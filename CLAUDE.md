@@ -121,15 +121,25 @@ GOOS=linux GOARCH=amd64 go build -tags xray -o node-agent-xray .
 
 ### 正式发布
 
-版本号来源：`version-ikev2.txt` 和 `version-xray.txt`（格式 `1.0.5`，无 `v` 前缀），两个文件需保持一致。
+版本号来源：`version-ikev2.txt` 和 `version-xray.txt`（格式 `1.0.5`，无 `v` 前缀）。
+
+每个协议独立发布，tag 必须带协议后缀：
+
+| 改动范围 | 操作 |
+|---------|------|
+| 仅 xray | bump `version-xray.txt`，推 `v1.0.6-xray` tag |
+| 仅 ikev2 | bump `version-ikev2.txt`，推 `v1.0.6-ikev2` tag |
+| 公共代码 | 两个版本文件都 bump，分别推 `v1.0.6-xray` 和 `v1.0.6-ikev2` 两个 tag |
 
 ```bash
+# 公共改动示例
 echo "1.0.6" > version-ikev2.txt && echo "1.0.6" > version-xray.txt
 git add version-ikev2.txt version-xray.txt && git commit -m "chore: bump version to 1.0.6"
-git tag v1.0.6 && git push origin v1.0.6
+git tag v1.0.6-ikev2 && git tag v1.0.6-xray
+git push origin v1.0.6-ikev2 v1.0.6-xray
 ```
 
-GitHub Actions 自动构建 `node-agent-ikev2` 和 `node-agent-xray` 两个 linux/amd64 产物并挂到 Release。
+GitHub Actions 根据 tag 后缀构建对应的 linux/amd64 产物并创建各自的 Release。
 
 节点每天北京时间 02:00（含随机 jitter）自动检查更新，或通过后端下发 `agent:self_update` 立即触发。版本比较时自动忽略 `v` 前缀。
 
