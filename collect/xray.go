@@ -3,6 +3,7 @@
 package collect
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +13,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	stats "github.com/salt-lake/kd-vps-agent/xray/proto/app/stats/command"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // xrayProvider 采集 Xray 连接数、版本和端口可达性
@@ -90,52 +95,33 @@ func xrayVersion() string {
 	return m[1]
 }
 
-// xrayConnCount 通过 Xray stats API 查询在线用户数
-// 返回格式与 swan 保持一致："N,0"
+// xrayConnCount 通过 gRPC 直连 Xray stats API 查询在线用户数。
+// xray v26 的 CLI statsquery 命令有 bug（"QueryStats only works its own stats.Manager"），
+// 因此改用 gRPC 直接调用。
 func xrayConnCount(apiAddr string) string {
-	out, err := exec.Command("xray", "api", "statsquery",
-		"--server="+apiAddr, "--pattern", "user>>>", "--reset=true").Output()
+	conn, err := grpc.NewClient(apiAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return "0"
 	}
-	count := countXrayOnline(string(out))
-	return strconv.Itoa(count)
-}
+	defer conn.Close()
 
-// countXrayOnline 统计 downlink 不为 0 的用户条目数。
-// 兼容新版 JSON 输出和旧版文本输出两种格式。
-func countXrayOnline(statsOutput string) int {
-	// 尝试 JSON 格式（新版 xray）
-	var resp struct {
-		Stat []struct {
-			Name  string `json:"name"`
-			Value int64  `json:"value"`
-		} `json:"stat"`
-	}
-	if err := json.Unmarshal([]byte(statsOutput), &resp); err == nil {
-		count := 0
-		for _, s := range resp.Stat {
-			if strings.Contains(s.Name, ">>>traffic>>>downlink") && s.Value > 0 {
-				count++
-			}
-		}
-		return count
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	client := stats.NewStatsServiceClient(conn)
+	resp, err := client.QueryStats(ctx, &stats.QueryStatsRequest{
+		Pattern: "user>>>",
+		Reset_:  true,
+	})
+	if err != nil {
+		return "0"
 	}
 
-	// 回退：旧版文本格式（name value: 123 在同一行）
 	count := 0
-	for _, line := range strings.Split(statsOutput, "\n") {
-		if strings.Contains(line, ">>>traffic>>>downlink") && strings.Contains(line, "value:") {
-			parts := strings.SplitN(line, "value:", 2)
-			if len(parts) < 2 {
-				continue
-			}
-			val := strings.TrimSpace(strings.Trim(parts[1], " >"))
-			n, err := strconv.ParseInt(val, 10, 64)
-			if err == nil && n > 0 {
-				count++
-			}
+	for _, s := range resp.GetStat() {
+		if strings.Contains(s.Name, ">>>traffic>>>downlink") && s.Value > 0 {
+			count++
 		}
 	}
-	return count
+	return strconv.Itoa(count)
 }
