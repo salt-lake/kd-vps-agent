@@ -50,11 +50,22 @@ func TestDiffState_RemoveOnly(t *testing.T) {
 
 func TestDiffState_MarkIDChangeCountsAsRemoveAdd(t *testing.T) {
 	// mark_id 变化：旧 tier 要 remove（旧 classid 不再用），新 tier 要 add（新 classid）
-	oldState := map[string]TierState{"vip": {MarkID: 1, PoolMbps: 100}}
-	newState := map[string]TierState{"vip": {MarkID: 5, PoolMbps: 100}}
+	oldState := map[string]TierState{"vip": {MarkID: 1, PoolMbps: 100, PortRange: "443"}}
+	newState := map[string]TierState{"vip": {MarkID: 5, PoolMbps: 100, PortRange: "443"}}
 
 	add, change, remove := DiffState(oldState, newState)
 	if !reflect.DeepEqual(add, []string{"vip"}) || !reflect.DeepEqual(remove, []string{"vip"}) || len(change) != 0 {
 		t.Errorf("mark change: add=%v change=%v remove=%v", add, change, remove)
+	}
+}
+
+func TestDiffState_PortRangeChangeCountsAsRemoveAdd(t *testing.T) {
+	// port range 变化：iptables 源端口匹配规则要重建，同样走 remove+add
+	oldState := map[string]TierState{"vip": {MarkID: 1, PoolMbps: 100, PortRange: "34521-34524"}}
+	newState := map[string]TierState{"vip": {MarkID: 1, PoolMbps: 100, PortRange: "45000-45003"}}
+
+	add, change, remove := DiffState(oldState, newState)
+	if !reflect.DeepEqual(add, []string{"vip"}) || !reflect.DeepEqual(remove, []string{"vip"}) || len(change) != 0 {
+		t.Errorf("port change: add=%v change=%v remove=%v", add, change, remove)
 	}
 }

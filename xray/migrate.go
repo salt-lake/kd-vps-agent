@@ -145,6 +145,7 @@ func (s *XrayUserSync) configAlreadyMultiInbound(p migrateTierPayload) bool {
 }
 
 // applyTC 把 payload 里的 tiers 转成 ratelimit.TierConfig 下发给 ratelimit manager。
+// PortRange 透传给 ratelimit 用于 iptables 源端口匹配。
 func (s *XrayUserSync) applyTC(p migrateTierPayload) error {
 	s.mu.Lock()
 	rl := s.ratelimit
@@ -155,15 +156,14 @@ func (s *XrayUserSync) applyTC(p migrateTierPayload) error {
 	}
 	tiers := make(map[string]ratelimit.TierConfig, len(p.Tiers))
 	for name, t := range p.Tiers {
-		tiers[name] = ratelimit.TierConfig{MarkID: t.MarkID, PoolMbps: t.PoolMbps}
+		tiers[name] = ratelimit.TierConfig{MarkID: t.MarkID, PoolMbps: t.PoolMbps, PortRange: t.PortRange}
 	}
 	return rl.Apply(tiers)
 }
 
 // writeMultiInboundConfig 基于原 config，按 payload 里的 tiers 生成多 inbound 结构：
 // - 为每个 tier 生成一个 inbound（复用原 streamSettings，仅 tag + port + clients 不同）
-// - 追加 direct-<tier> outbound（带 sockopt.mark），保留原有 outbound
-// - 追加 inboundTag → outboundTag routing 规则
+// - outbounds 和 routing 保持原样不动（打标改由 iptables 完成，xray 侧无需感知 tier）
 // - clients 按 user.tier（缺失则 defaultTier）分组写入对应 inbound
 func (s *XrayUserSync) writeMultiInboundConfig(orig []byte, p migrateTierPayload, users []userDTO) error {
 	var raw map[string]json.RawMessage
@@ -200,7 +200,7 @@ func (s *XrayUserSync) writeMultiInboundConfig(orig []byte, p migrateTierPayload
 		})
 	}
 
-	// 生成新 inbounds 数组
+	// 生成新 inbounds 数组（每 tier 一个，基于第一个原 inbound 作模板）
 	newInbounds := []map[string]json.RawMessage{}
 	for tierName, t := range p.Tiers {
 		ib := map[string]json.RawMessage{}
@@ -235,78 +235,8 @@ func (s *XrayUserSync) writeMultiInboundConfig(orig []byte, p migrateTierPayload
 	}
 	raw["inbounds"] = newInboundsJSON
 
-	// outbounds：追加 direct-<tier>，保留现有
-	var outbounds []map[string]json.RawMessage
-	if raw["outbounds"] != nil {
-		_ = json.Unmarshal(raw["outbounds"], &outbounds)
-	}
-	for tierName, t := range p.Tiers {
-		tag := "direct-" + tierName
-		exists := false
-		for _, ob := range outbounds {
-			var oTag string
-			_ = json.Unmarshal(ob["tag"], &oTag)
-			if oTag == tag {
-				exists = true
-				break
-			}
-		}
-		if exists {
-			continue
-		}
-		ob := map[string]json.RawMessage{}
-		tagJSON, _ := json.Marshal(tag)
-		ob["tag"] = tagJSON
-		ob["protocol"] = json.RawMessage(`"freedom"`)
-		sockopt, _ := json.Marshal(map[string]any{"sockopt": map[string]any{"mark": t.MarkID}})
-		ob["streamSettings"] = sockopt
-		outbounds = append(outbounds, ob)
-	}
-	outboundsJSON, _ := json.Marshal(outbounds)
-	raw["outbounds"] = outboundsJSON
-
-	// routing.rules：追加 inboundTag → outboundTag 规则
-	var routing map[string]json.RawMessage
-	if raw["routing"] != nil {
-		_ = json.Unmarshal(raw["routing"], &routing)
-	} else {
-		routing = map[string]json.RawMessage{}
-	}
-	var rules []map[string]json.RawMessage
-	if routing["rules"] != nil {
-		_ = json.Unmarshal(routing["rules"], &rules)
-	}
-	for tierName, t := range p.Tiers {
-		targetOut := "direct-" + tierName
-		exists := false
-		for _, r := range rules {
-			var ibTags []string
-			_ = json.Unmarshal(r["inboundTag"], &ibTags)
-			for _, ibt := range ibTags {
-				if ibt == t.InboundTag {
-					exists = true
-					break
-				}
-			}
-			if exists {
-				break
-			}
-		}
-		if exists {
-			continue
-		}
-		rule := map[string]json.RawMessage{}
-		rule["type"] = json.RawMessage(`"field"`)
-		inboundTagJSON, _ := json.Marshal([]string{t.InboundTag})
-		outboundTagJSON, _ := json.Marshal(targetOut)
-		rule["inboundTag"] = inboundTagJSON
-		rule["outboundTag"] = outboundTagJSON
-		rules = append(rules, rule)
-	}
-	rulesJSON, _ := json.Marshal(rules)
-	routing["rules"] = rulesJSON
-	routingJSON, _ := json.Marshal(routing)
-	raw["routing"] = routingJSON
+	// outbounds 和 routing 不修改：限速通过 iptables 按源端口打标，xray 内部不需要 tier 感知
+	// （保留原 `direct` / `blocked` 兜底 outbound，routing.rules 保持为空）
 
 	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {

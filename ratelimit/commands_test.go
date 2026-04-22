@@ -62,3 +62,42 @@ func TestClassIDMinorFromMark(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeIptablesPort(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"34521-34524", "34521:34524"}, // 范围转冒号分隔
+		{"443", "443"},                 // 单端口保持
+		{"", ""},
+	}
+	for _, tc := range tests {
+		if got := normalizeIptablesPort(tc.in); got != tc.want {
+			t.Errorf("in=%q got %q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestBuildIptablesAddMarkArgs(t *testing.T) {
+	got := buildIptablesAddMarkArgs("34521-34524", 1)
+	want := []string{"-t", "mangle", "-A", "OUTPUT", "-p", "tcp", "--sport", "34521:34524", "-j", "MARK", "--set-mark", "1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestBuildIptablesCheckMarkArgs(t *testing.T) {
+	got := buildIptablesCheckMarkArgs("443", 2)
+	want := []string{"-t", "mangle", "-C", "OUTPUT", "-p", "tcp", "--sport", "443", "-j", "MARK", "--set-mark", "2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestBuildIptablesDelMarkArgs(t *testing.T) {
+	got := buildIptablesDelMarkArgs("45000-45003", 2)
+	want := []string{"-t", "mangle", "-D", "OUTPUT", "-p", "tcp", "--sport", "45000:45003", "-j", "MARK", "--set-mark", "2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

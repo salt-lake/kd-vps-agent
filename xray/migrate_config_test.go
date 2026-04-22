@@ -77,39 +77,30 @@ func TestWriteMultiInboundConfig(t *testing.T) {
 		t.Errorf("proxy-svip port = %s, want 45000-45003", portsByTag["proxy-svip"])
 	}
 
-	// outbounds 应含 direct-vip / direct-svip
+	// outbounds 保持原 config 不变（不追加 direct-<tier>）
+	// 限速通过 iptables 按源端口匹配，xray 侧不需要感知 tier
 	outbounds := parsed["outbounds"].([]interface{})
-	foundVipOut := false
-	foundSvipOut := false
 	for _, ob := range outbounds {
 		m := ob.(map[string]interface{})
-		switch m["tag"].(string) {
-		case "direct-vip":
-			foundVipOut = true
-			// 验证 sockopt.mark
-			ss := m["streamSettings"].(map[string]interface{})
-			sockopt := ss["sockopt"].(map[string]interface{})
-			if int(sockopt["mark"].(float64)) != 1 {
-				t.Errorf("direct-vip sockopt.mark != 1")
-			}
-		case "direct-svip":
-			foundSvipOut = true
-			ss := m["streamSettings"].(map[string]interface{})
-			sockopt := ss["sockopt"].(map[string]interface{})
-			if int(sockopt["mark"].(float64)) != 2 {
-				t.Errorf("direct-svip sockopt.mark != 2")
+		tag, _ := m["tag"].(string)
+		if tag == "direct-vip" || tag == "direct-svip" {
+			t.Errorf("outbound should not have per-tier direct-<tier>; got tag=%s", tag)
+		}
+		// 不应含 sockopt.mark
+		if ss, ok := m["streamSettings"].(map[string]interface{}); ok {
+			if sockopt, ok := ss["sockopt"].(map[string]interface{}); ok {
+				if _, has := sockopt["mark"]; has {
+					t.Errorf("outbound tag=%s should not have sockopt.mark (limit via iptables)", tag)
+				}
 			}
 		}
 	}
-	if !foundVipOut || !foundSvipOut {
-		t.Error("missing direct-<tier> outbounds")
-	}
 
-	// routing.rules 应至少有 2 条
+	// routing.rules 保持原样（空）—— 不做 tier 级路由
 	routing := parsed["routing"].(map[string]interface{})
 	rules := routing["rules"].([]interface{})
-	if len(rules) < 2 {
-		t.Errorf("expected >=2 routing rules, got %d", len(rules))
+	if len(rules) != 0 {
+		t.Errorf("routing.rules should be empty; got %d rules: %v", len(rules), rules)
 	}
 
 	// clients 分布：proxy-vip 应含 user-vip-1 + defaultUUID；proxy-svip 应含 user-svip-1 + defaultUUID
