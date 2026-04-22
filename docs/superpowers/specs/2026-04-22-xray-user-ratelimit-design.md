@@ -61,8 +61,10 @@
 ```jsonc
 {
   "inbounds": [
-    { "tag": "proxy-vip",  "port": 443,  "settings": {"clients": [...]}, "streamSettings": {...} },
-    { "tag": "proxy-svip", "port": 8443, "settings": {"clients": [...]}, "streamSettings": {...} }
+    // VIP 端口：复用节点已有的随机端口区间（迁移前就是这个）
+    { "tag": "proxy-vip",  "port": "${NODE_VIP_PORT_RANGE}",  "settings": {"clients": [...]}, "streamSettings": {...} },
+    // SVIP 端口：迁移时为该节点新生成的随机端口区间
+    { "tag": "proxy-svip", "port": "${NODE_SVIP_PORT_RANGE}", "settings": {"clients": [...]}, "streamSettings": {...} }
   ],
   "outbounds": [
     { "tag": "direct-vip",  "protocol": "freedom",
@@ -79,6 +81,12 @@
   }
 }
 ```
+
+**关键设计决策**：端口**每节点独立**，不是全局统一。
+
+- 现有 xray 节点启动时生成随机端口区间（如 `34521-34524`），按 port hopping 监听
+- 迁移时：VIP inbound **复用节点现有端口**（零扰动，VIP 用户分享链接保持不变）；SVIP inbound 由迁移指令 payload 传入一个**节点唯一的新随机端口区间**
+- 该节点的两个端口区间由后端维护（`tb_node.xray_tier_ports`），agent 不负责生成，只负责按 payload 写入 config
 
 ### 3.3 tc 规则模板
 
@@ -111,8 +119,8 @@ tc filter replace dev $IFACE protocol ip parent 1: prio 1 handle 2 fw flowid 1:2
   "code": 200,
   "data": {
     "tiers": {
-      "vip":  { "markId": 1, "inboundTag": "proxy-vip",  "port": 443,  "poolMbps": 100 },
-      "svip": { "markId": 2, "inboundTag": "proxy-svip", "port": 8443, "poolMbps": 500 }
+      "vip":  { "markId": 1, "inboundTag": "proxy-vip",  "poolMbps": 100 },
+      "svip": { "markId": 2, "inboundTag": "proxy-svip", "poolMbps": 500 }
     },
     "users": [
       { "uuid": "a1b2...", "tier": "vip" },
@@ -121,6 +129,8 @@ tc filter replace dev $IFACE protocol ip parent 1: prio 1 handle 2 fw flowid 1:2
   }
 }
 ```
+
+**注意**：稳态 API 不含 `port` 字段。端口信息在迁移时烘焙进 xray config.json，之后 agent 只用 `inboundTag` 路由 gRPC add/remove 调用，用 `markId` + `poolMbps` 建 tc 规则，与端口无关。
 
 **向后兼容策略**：
 
@@ -160,8 +170,8 @@ tc filter replace dev $IFACE protocol ip parent 1: prio 1 handle 2 fw flowid 1:2
 type TierConfig struct {
     MarkID     int
     InboundTag string
-    Port       int
     PoolMbps   int
+    // 不持有 Port：端口在迁移时已写入 xray config，稳态运行不需要
 }
 
 type XrayUserSync struct {
@@ -268,18 +278,24 @@ func (h *XrayMigrateTierHandler) Handle(data []byte) ([]byte, error) {
 
 ## 7. 一次性迁移指令详解
 
-**payload 格式**：
+**payload 格式**（端口由后端按节点定制填入）：
 
 ```json
 {
   "tiers": {
-    "vip":  {"markId": 1, "inboundTag": "proxy-vip",  "port": 443,  "poolMbps": 100},
-    "svip": {"markId": 2, "inboundTag": "proxy-svip", "port": 8443, "poolMbps": 500}
+    "vip":  {"markId": 1, "inboundTag": "proxy-vip",  "portRange": "34521-34524", "poolMbps": 100},
+    "svip": {"markId": 2, "inboundTag": "proxy-svip", "portRange": "45012-45015", "poolMbps": 500}
   },
   "defaultTier": "vip",
   "migrateExisting": true
 }
 ```
+
+**端口分配规则**（后端负责）：
+
+- VIP 的 `portRange` = 该节点现有 `tb_node.RealityConfig.PortRange`（复用，零扰动）
+- SVIP 的 `portRange` = 后端在迁移前生成的一个新随机 4 端口区间，记录到 `tb_node.xray_tier_ports`
+- 指令里的 `portRange` 格式与现有 RealityConfig 一致（`start-end` 或单端口字符串）
 
 **defaultTier 语义**：迁移时从后端拉到的 users 里若有**未带 tier 字段的条目**（老数据），统一归入 `defaultTier`。若后端已为所有用户打好 tier，此字段仅作保险。
 
@@ -291,8 +307,9 @@ func (h *XrayMigrateTierHandler) Handle(data []byte) ([]byte, error) {
 2. 备份当前 config 到 `config.json.bak.<timestamp>`
 3. 从后端拉当前 users（全量，新格式带 tier）
 4. 生成新 config：
-   - inbounds：按 tiers 定义生成（复用原 inbound 的 streamSettings/流控细节，换端口换 tag）
-   - outbounds：追加 `direct-<tier>`，保留原有 `direct` 兜底
+   - inbounds：按 `tiers[*].inboundTag` + `tiers[*].portRange` 生成；**VIP inbound 复用原 inbound 的完整 streamSettings**（reality 密钥/shortIds/dest 都原样照抄）；SVIP inbound 共用同一套 reality 配置（仅端口不同）
+   - 开通 SVIP 端口的 iptables ACCEPT 规则（参考 deploy-xray `open_firewall_ports`）
+   - outbounds：追加 `direct-<tier>`（每个带 `sockopt.mark`），保留原有 `direct` 兜底
    - routing：为每个 tier 追加一条 inboundTag → outboundTag 规则
    - clients：按 `user.tier`（缺失则 `defaultTier`）分组写入对应 inbound
 5. 写入 `/etc/xray/config.json`
@@ -300,7 +317,7 @@ func (h *XrayMigrateTierHandler) Handle(data []byte) ([]byte, error) {
 7. 等待 xray gRPC 就绪（复用现有 `IsXrayReady` 轮询）
 8. gRPC 重新注入所有用户（按 tier 分组 `AddUser(uuid, tier)`）
 9. `tcManager.Apply(tiers)`
-10. 上报执行结果
+10. 上报执行结果（含 SVIP 实际监听端口，便于后端核对）
 
 ## 8. 兜底与容错矩阵
 
