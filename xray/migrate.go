@@ -86,8 +86,8 @@ func (s *XrayUserSync) MigrateToTiers(raw []byte) error {
 		}
 	}
 
-	// 7. docker restart xray
-	if err := restartXrayContainer(); err != nil {
+	// 7. 重启 xray（systemd 服务，与现有代码一致）
+	if err := restartXrayService(); err != nil {
 		return fmt.Errorf("restart xray: %w", err)
 	}
 
@@ -325,13 +325,13 @@ func openFirewallPort(portRange string) error {
 	return exec.Command("iptables", "-I", "INPUT", "-p", "tcp", "--dport", pr, "-j", "ACCEPT").Run()
 }
 
-// restartXrayContainer 重启 xray 容器。
-func restartXrayContainer() error {
+// restartXrayService 重启 xray（systemd 服务），与 schedule.go 里的重启方式一致。
+func restartXrayService() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "restart", "xray").CombinedOutput()
+	out, err := exec.CommandContext(ctx, "systemctl", "restart", "xray").CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker restart xray: %w, output: %s", err, out)
+		return fmt.Errorf("systemctl restart xray: %w, output: %s", err, out)
 	}
 	return nil
 }
