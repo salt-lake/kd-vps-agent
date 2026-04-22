@@ -28,7 +28,11 @@ type mockXrayAPI struct {
 
 func (m *mockXrayAPI) IsXrayReady(_ context.Context) bool { return m.ready }
 
-func (m *mockXrayAPI) AddOrReplace(_ context.Context, u *User) error {
+func (m *mockXrayAPI) AddOrReplace(ctx context.Context, u *User) error {
+	return m.AddOrReplaceToTag(ctx, "", u)
+}
+
+func (m *mockXrayAPI) AddOrReplaceToTag(_ context.Context, _ string, u *User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.added = append(m.added, u.UUID)
@@ -44,7 +48,11 @@ func (m *mockXrayAPI) AddBatch(ctx context.Context, users []*User) error {
 	return nil
 }
 
-func (m *mockXrayAPI) RemoveUserById(_ context.Context, id string) error {
+func (m *mockXrayAPI) RemoveUserById(ctx context.Context, id string) error {
+	return m.RemoveUserFromTag(ctx, "", id)
+}
+
+func (m *mockXrayAPI) RemoveUserFromTag(_ context.Context, _, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.removed = append(m.removed, id)
@@ -76,17 +84,17 @@ func (m *mockXrayAPI) allRemoved() []string {
 
 // ---- helpers ----
 
-// newSync 构造一个预注入 mock API 的 XrayUserSync，current 由调用方指定。
+// newSync 构造一个预注入 mock API 的 XrayUserSync，current 由调用方指定（tier="" 兼容模式）。
 func newSync(api XrayAPI, apiBase string, current ...string) *XrayUserSync {
 	s := NewXrayUserSync(apiBase, "token", "127.0.0.1:10085", "vless", "")
 	s.xrayAPI = api
 	for _, u := range current {
-		s.current[u] = struct{}{}
+		s.current[u] = ""
 	}
 	return s
 }
 
-// usersServer 返回一个 httptest.Server，响应 /api/agent/xray/users。
+// usersServer 返回一个 httptest.Server，响应 /api/agent/xray/users（老格式）。
 func usersServer(uuids []string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var data []userDTO
@@ -97,12 +105,15 @@ func usersServer(uuids []string) *httptest.Server {
 	}))
 }
 
-// deltaServer 返回一个 httptest.Server，响应 /api/agent/xray/users/delta。
+// deltaServer 返回一个 httptest.Server，响应 /api/agent/xray/users/delta（老格式，added 是 []string）。
 func deltaServer(added, removed []string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(deltaResp{
-			Code: 200,
-			Data: deltaData{Added: added, Removed: removed},
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"data": map[string]any{
+				"added":   added,
+				"removed": removed,
+			},
 		})
 	}))
 }
@@ -130,30 +141,30 @@ func sorted(ss []string) []string {
 
 func TestDiffUsers_EmptyCurrentAndRemote(t *testing.T) {
 	s := newSync(nil, "")
-	toAdd, toRemove := s.diffUsers(map[string]struct{}{}, nil)
-	if len(toAdd) != 0 || len(toRemove) != 0 {
-		t.Errorf("expected empty diff, got add=%v remove=%v", toAdd, toRemove)
+	toAdd, toRemove, toChange := s.diffUsers(map[string]string{}, nil)
+	if len(toAdd) != 0 || len(toRemove) != 0 || len(toChange) != 0 {
+		t.Errorf("expected empty diff, got add=%v remove=%v change=%v", toAdd, toRemove, toChange)
 	}
 }
 
 func TestDiffUsers_NewUsersInRemote(t *testing.T) {
 	s := newSync(nil, "")
-	remote := map[string]struct{}{"u1": {}, "u2": {}}
-	toAdd, toRemove := s.diffUsers(remote, nil)
-	if len(toRemove) != 0 {
-		t.Errorf("expected no removes, got %v", toRemove)
+	remote := map[string]string{"u1": "", "u2": ""}
+	toAdd, toRemove, toChange := s.diffUsers(remote, nil)
+	if len(toRemove) != 0 || len(toChange) != 0 {
+		t.Errorf("expected no removes/changes, got remove=%v change=%v", toRemove, toChange)
 	}
-	if len(sorted(toAdd)) != 2 {
+	if len(toAdd) != 2 {
 		t.Errorf("expected 2 adds, got %v", toAdd)
 	}
 }
 
 func TestDiffUsers_GoneUsersInCurrent(t *testing.T) {
 	s := newSync(nil, "", "old1", "old2")
-	remote := map[string]struct{}{}
-	toAdd, toRemove := s.diffUsers(remote, nil)
-	if len(toAdd) != 0 {
-		t.Errorf("expected no adds, got %v", toAdd)
+	remote := map[string]string{}
+	toAdd, toRemove, toChange := s.diffUsers(remote, nil)
+	if len(toAdd) != 0 || len(toChange) != 0 {
+		t.Errorf("expected no adds/changes, got add=%v change=%v", toAdd, toChange)
 	}
 	if len(toRemove) != 2 {
 		t.Errorf("expected 2 removes, got %v", toRemove)
@@ -162,17 +173,17 @@ func TestDiffUsers_GoneUsersInCurrent(t *testing.T) {
 
 func TestDiffUsers_UserInBothNoChange(t *testing.T) {
 	s := newSync(nil, "", "common")
-	remote := map[string]struct{}{"common": {}}
-	toAdd, toRemove := s.diffUsers(remote, nil)
-	if len(toAdd) != 0 || len(toRemove) != 0 {
-		t.Errorf("expected empty diff, got add=%v remove=%v", toAdd, toRemove)
+	remote := map[string]string{"common": ""}
+	toAdd, toRemove, toChange := s.diffUsers(remote, nil)
+	if len(toAdd) != 0 || len(toRemove) != 0 || len(toChange) != 0 {
+		t.Errorf("expected empty diff, got add=%v remove=%v change=%v", toAdd, toRemove, toChange)
 	}
 }
 
 func TestDiffUsers_DefaultUUIDNeverRemoved(t *testing.T) {
 	s := newSync(nil, "", defaultUUID, "regular")
-	remote := map[string]struct{}{} // 两者都不在 remote
-	_, toRemove := s.diffUsers(remote, nil)
+	remote := map[string]string{} // 两者都不在 remote
+	_, toRemove, _ := s.diffUsers(remote, nil)
 	for _, id := range toRemove {
 		if id == defaultUUID {
 			t.Errorf("defaultUUID should never appear in toRemove")
@@ -182,9 +193,9 @@ func TestDiffUsers_DefaultUUIDNeverRemoved(t *testing.T) {
 
 func TestDiffUsers_TempUsersExcludedFromRemove(t *testing.T) {
 	s := newSync(nil, "", "temp-u1", "regular-u1")
-	remote := map[string]struct{}{} // 两者都消失
+	remote := map[string]string{} // 两者都消失
 	exclude := map[string]struct{}{"temp-u1": {}}
-	_, toRemove := s.diffUsers(remote, exclude)
+	_, toRemove, _ := s.diffUsers(remote, exclude)
 	for _, id := range toRemove {
 		if id == "temp-u1" {
 			t.Errorf("temp user should be excluded from toRemove")
@@ -319,7 +330,7 @@ func TestFetchDelta_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(delta.Added) != 1 || delta.Added[0] != "add1" {
+	if len(delta.Added) != 1 || delta.Added[0].UUID != "add1" {
 		t.Errorf("added = %v, want [add1]", delta.Added)
 	}
 	if len(delta.Removed) != 1 || delta.Removed[0] != "rem1" {
@@ -515,7 +526,7 @@ func TestClose_CallsAPIClose(t *testing.T) {
 func TestAddUser_Success(t *testing.T) {
 	mock := &mockXrayAPI{ready: true}
 	s := newSync(mock, "")
-	if err := s.AddUser("aaaa0000-0000-0000-0000-000000000002"); err != nil {
+	if err := s.AddUser("aaaa0000-0000-0000-0000-000000000002", ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(mock.allAdded()) != 1 {
@@ -532,7 +543,7 @@ func TestAddUser_Success(t *testing.T) {
 func TestAddUser_ConnectionError_ResetsAPI(t *testing.T) {
 	mock := &mockXrayAPI{addErr: fmt.Errorf("connection refused")}
 	s := newSync(mock, "")
-	err := s.AddUser("aaaa0000-0000-0000-0000-000000000002")
+	err := s.AddUser("aaaa0000-0000-0000-0000-000000000002", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -547,7 +558,7 @@ func TestAddUser_ConnectionError_ResetsAPI(t *testing.T) {
 func TestAddUser_NonConnectionError_KeepsAPI(t *testing.T) {
 	mock := &mockXrayAPI{addErr: fmt.Errorf("some other error")}
 	s := newSync(mock, "")
-	_ = s.AddUser("aaaa0000-0000-0000-0000-000000000002")
+	_ = s.AddUser("aaaa0000-0000-0000-0000-000000000002", "")
 	s.mu.Lock()
 	api := s.xrayAPI
 	s.mu.Unlock()

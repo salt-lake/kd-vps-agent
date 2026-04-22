@@ -10,8 +10,9 @@ import (
 )
 
 // userManager 是 TempUserSync 依赖的最小接口，由 XrayUserSync 满足。
+// tier 参数：临时用户统一传 ""，由 XrayUserSync 内部路由到默认 tier 的 inbound。
 type userManager interface {
-	AddUser(uuid string) error
+	AddUser(uuid, tier string) error
 	RemoveUser(uuid string) error
 }
 
@@ -40,7 +41,7 @@ func (t *TempUserSync) startup() error {
 		return err
 	}
 	for _, uuid := range uuids {
-		if err := t.manager.AddUser(uuid); err != nil {
+		if err := t.manager.AddUser(uuid, ""); err != nil {
 			log.Printf("temp_sync: startup add user=%s err=%v", uuid, err)
 		}
 	}
@@ -90,7 +91,7 @@ func (t *TempUserSync) poll() error {
 	}
 
 	for _, uuid := range toAdd {
-		if err := t.manager.AddUser(uuid); err != nil {
+		if err := t.manager.AddUser(uuid, ""); err != nil {
 			log.Printf("temp_sync: poll add user=%s err=%v", uuid, err)
 		}
 	}
@@ -114,7 +115,7 @@ func (t *TempUserSync) ReInjectAll() {
 	uuids := t.uuids
 	t.mu.RUnlock()
 	for _, uuid := range uuids {
-		if err := t.manager.AddUser(uuid); err != nil {
+		if err := t.manager.AddUser(uuid, ""); err != nil {
 			log.Printf("temp_sync: re-inject user=%s err=%v", uuid, err)
 		}
 	}
