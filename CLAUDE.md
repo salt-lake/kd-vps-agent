@@ -21,29 +21,38 @@ kd-vps-agent/
 ├── version-ikev2.txt # ikev2 构建版本号（go:embed 嵌入二进制），格式：1.0.3（无 v 前缀）
 ├── version-xray.txt  # xray 构建版本号（go:embed 嵌入二进制），格式：1.0.3（无 v 前缀）
 ├── collect/
-│   ├── collector.go  # Payload 结构、MetricProvider 接口、Collector 组合
+│   ├── collector.go  # Payload 结构（含 TcStats 字段）、MetricProvider 接口、Collector 组合
 │   ├── sys.go        # CPU(/proc/stat)、内存(/proc/meminfo)、磁盘(syscall.Statfs)
 │   ├── traffic.go    # TX 流量累积（/proc/net/dev），持久化到 /var/lib/node-agent/traffic.json
 │   ├── swan.go       # IKEv2/StrongSwan：连接数 + 版本（docker exec ipsec）
-│   └── xray.go       # Xray：连接数（stats API）+ 版本（docker exec xray version）
+│   ├── xray.go       # Xray：连接数（stats API）+ 版本（docker exec xray version）
+│   └── tc_stats.go   # tc class 统计采集（仅 xray 构建，限速启用时）
 ├── command/
-│   ├── dispatcher.go      # NATS 消息路由到 Handler
-│   ├── swan_update.go     # swan_update 指令：docker pull（可选）+ restart StrongSwan 容器
-│   ├── bootstrap.go       # bootstrap 指令
-│   ├── self_update.go     # agent:self_update 指令（触发立即自更新）
-│   ├── xray_update.go     # xray_update 指令：更新二进制和/或配置，重启 xray（仅 xray 构建）
-│   └── xray_user.go       # xray 用户增删指令（仅 xray 构建）
+│   ├── dispatcher.go        # NATS 消息路由到 Handler
+│   ├── swan_update.go       # swan_update 指令
+│   ├── bootstrap.go         # bootstrap 指令
+│   ├── self_update.go       # agent:self_update 指令
+│   ├── xray_update.go       # xray_update 指令（仅 xray 构建）
+│   ├── xray_user.go         # xray 用户增删指令（含 tier 字段，仅 xray 构建）
+│   └── xray_migrate_tier.go # xray_migrate_tier 指令（一次性结构性迁移，仅 xray 构建）
 ├── update/
 │   └── updater.go    # 检查 GitHub Releases → 下载新二进制 → 替换 → systemctl restart
+├── ratelimit/        # tier 限速的 tc 规则管理（仅 xray 构建）
+│   ├── detect.go     # 网卡名自动探测（ip route get 1.1.1.1）
+│   ├── commands.go   # tc 命令生成器（纯函数）
+│   ├── state.go      # 已应用 tier 状态三态 diff
+│   ├── manager.go    # TCManager：Apply/Disable 幂等下发 + mock 注入
+│   └── stats.go      # tc -s -j class show JSON 解析
 └── xray/             # xray 专属逻辑（仅 xray 构建）
-    ├── xray.go       # GRPCXrayAPI：gRPC 连接封装
-    ├── types.go      # gRPC 类型定义
-    ├── xray_sync.go  # XrayUserSync 结构体及构造函数
-    ├── grpc.go       # 用户增删的 gRPC 操作
-    ├── api.go        # 后端 HTTP API 拉取用户列表
-    ├── config.go     # xray 配置文件读写（clients 列表）
-    ├── schedule.go   # 定时同步、启动同步、增量同步
-    ├── state.go      # 同步状态持久化（/var/lib/node-agent/sync_state.json）
+    ├── xray.go       # GRPCXrayAPI：gRPC 连接封装，支持 per-tag AlterInbound
+    ├── types.go      # XrayAPI 接口（AddOrReplaceToTag / RemoveUserFromTag）
+    ├── xray_sync.go  # XrayUserSync 结构（含 tiers 字典 + current uuid→tier 映射）
+    ├── grpc.go       # 按 tier 选 inbound 的用户增删
+    ├── api.go        # 后端 HTTP API（X-Agent-Version:2，解析新/老两种格式）
+    ├── config.go     # xray 配置文件读写（支持多 inbound）
+    ├── schedule.go   # 定时同步（三态 diff：add/remove/change tier）
+    ├── migrate.go    # xray_migrate_tier 指令实现（单→多 inbound 结构改造）
+    ├── state.go      # 同步状态持久化
     └── proto/        # protobuf 生成代码
 ```
 
@@ -91,6 +100,8 @@ type Handler interface {
 | `REPORT_INTERVAL` | `2m` | 上报间隔（Go duration 格式） |
 | `API_BASE` | — | 后端 API 基地址（xray 用户同步需要） |
 | `SCRIPT_TOKEN` | 同 `NATS_AUTH_TOKEN` | 访问后端 API 的 Bearer token |
+| `RATELIMIT_ENABLED` | `true` | 限速总开关（xray 构建）；`false` 时 agent 不碰 tc 规则 |
+| `RATELIMIT_IFACE` | 自动探测 | tc 工作的网卡；探测用 `ip route get 1.1.1.1`，失败 fallback 到 `eth0` |
 
 ---
 
