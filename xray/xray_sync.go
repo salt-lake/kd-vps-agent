@@ -6,6 +6,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/salt-lake/kd-vps-agent/ratelimit"
 )
 
 const (
@@ -26,8 +28,9 @@ type TierConfig struct {
 }
 
 // TCApplier 由 ratelimit.Manager 实现，注入到 XrayUserSync 供迁移和 tier 调整时应用 tc 规则。
+// 接受 ratelimit.TierConfig（只含 MarkID/PoolMbps，不关心 inboundTag）。
 type TCApplier interface {
-	Apply(tiers map[string]TierConfig) error
+	Apply(tiers map[string]ratelimit.TierConfig) error
 }
 
 // XrayUserSync 管理 xray 用户的全量同步和实时增量操作。
