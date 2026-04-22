@@ -394,17 +394,123 @@ tc -s class show dev $IFACE  # 看每个 class 的 drop / backlog / bytes
 - 调 `pool_mbps` 时对照节点网卡上限做前置校验
 - 可视化显示每节点各 tier 的实时利用率
 
-## 12. 风险与待验证项
+## 12. tc 统计上报（v1 范围内）
+
+为了让"调整池子大小"有依据，agent 侧采集 tc stats 并随 Payload 上报，后端做时序存储供管理端查询。
+
+### 12.1 采集实现（collect 包新增 Provider）
+
+新增 `collect/tc_stats.go`（仅 xray 构建注册），实现 `MetricProvider` 接口：
+
+```go
+//go:build xray
+
+package collect
+
+import (
+    "os/exec"
+    "strings"
+)
+
+type TcStatsProvider struct {
+    iface string // 从 ratelimit 包复用网卡探测结果
+}
+
+func NewTcStatsProvider(iface string) *TcStatsProvider {
+    return &TcStatsProvider{iface: iface}
+}
+
+// TierStats 每个 tier 的 tc class 统计，对应 Payload.TcStats
+type TierStats struct {
+    ClassID  string `json:"classId"`  // "1:10" / "1:20"
+    SentBytes uint64 `json:"sent"`
+    Dropped  uint64 `json:"dropped"`
+    Overlimits uint64 `json:"overlimits"`
+    BacklogBytes uint64 `json:"backlog"`
+}
+
+func (t *TcStatsProvider) Collect(p *Payload) {
+    out, err := exec.Command("tc", "-s", "-j", "class", "show", "dev", t.iface).Output()
+    if err != nil {
+        return // 静默失败，不影响其他采集
+    }
+    p.TcStats = parseTcJSON(out) // 解析 JSON 格式输出为 map[classId]TierStats
+}
+```
+
+**注意**：`tc -j` 需要 iproute2 足够新（Debian 11+、Ubuntu 20.04+ 都有），现网节点应满足；若失败 fallback 解析文本格式。
+
+### 12.2 Payload 扩展
+
+```go
+type Payload struct {
+    // ... 现有字段
+    TcStats map[string]TierStats `json:"tc_stats,omitempty"` // key = classId
+}
+```
+
+- 老字段不动，新字段 omitempty，对后端/前端完全透明
+- 采集失败或 ratelimit 未启用 → 字段为空，不上报
+
+### 12.3 后端接收与存储
+
+后端 report 消费者扩展：收到 `tc_stats` 非空时，写入时序表 `xray_tc_stats_history`：
+
+```sql
+CREATE TABLE IF NOT EXISTS xray_tc_stats_history (
+    id           BIGSERIAL   PRIMARY KEY,
+    node_id      VARCHAR(64) NOT NULL,
+    class_id     VARCHAR(16) NOT NULL,  -- "1:10" 对应 VIP，"1:20" 对应 SVIP
+    sent_bytes   BIGINT      NOT NULL,
+    dropped      BIGINT      NOT NULL,
+    overlimits   BIGINT      NOT NULL,
+    backlog      BIGINT      NOT NULL,
+    collected_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tc_stats_node_time ON xray_tc_stats_history (node_id, collected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tc_stats_class_time ON xray_tc_stats_history (class_id, collected_at DESC);
+```
+
+数据保留策略：建议 **7 天**（跟 user_sync_event 对齐）；更长期存储留 v2 做聚合。
+
+### 12.4 管理端查询 API（v1.5 后补）
+
+```text
+GET /api/admin/xray/nodes/:id/tc-stats?tier=vip&from=<unix>&to=<unix>
+  → [{collectedAt, sent, dropped, backlog, ...}]
+```
+
+前端可在节点详情页画曲线。
+
+### 12.5 指标与阈值（运营使用）
+
+agent 采样间隔 = Payload 上报间隔（`REPORT_INTERVAL`，默认 2min），每次上报一条。
+
+**报警规则建议**（告警规则可放后端 cron）：
+
+| 规则 | 阈值 | 动作 |
+|---|---|---|
+| `dropped / sent > 1%` 持续 5 分钟 | 严重拥塞 | 告警运营扩池 |
+| `backlog > 50KB` 持续 3 分钟 | bufferbloat | 告警 |
+| `sent_Mbps / pool_Mbps < 20%` 持续 24 小时 | 池子利用率过低 | 告警"可考虑降池" |
+
+---
+
+## 13. 风险与待验证项
 
 1. **xray `sockopt.mark` 与 tc `fw` filter 的透传**：设计假设 `skb->mark` 可直接被 tc 识别，需在实施阶段最小化 PoC 验证；失败时启用 `CONNMARK` fallback
 2. **双 inbound 端口分配**：VPS 上两个端口需都不冲突；现网各节点端口情况需运维确认，迁移指令 payload 里的 port 由后端按节点下发
 3. **xray reload 的停机时间**：迁移期间 xray 会 restart，用户连接会断一次；迁移需挑低峰执行
 4. **tier 字段的后端存储改造**：用户表需加 tier 字段，初始化数据迁移策略由后端方案处理，不在本 spec 范围
+5. **`tc -j` JSON 输出格式版本**：老系统（Debian 10-）可能不支持，需 fallback 解析文本格式
 
-## 12. v2 可能的扩展（明确排除）
+## 14. v2 可能的扩展（明确排除）
 
 - NATS 推送限速变更（秒级响应，当前定期拉取 5min 足够）
 - 硬性每用户上限（切换到 per-IP 哈希分桶）
 - 上行限速（加 ifb + ingress policing）
 - 动态增删 tier（需要 xray 配置热更机制支持）
 - 用户流量配额统计（xray stats API 已有，需后端存储方案）
+- tc stats 长期聚合（日/周/月下采样）与智能告警
+- 前端可视化面板（带宽利用率曲线、告警看板）
