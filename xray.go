@@ -5,10 +5,12 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os/exec"
 
+	"github.com/nats-io/nats.go"
 	"github.com/salt-lake/kd-vps-agent/collect"
 	"github.com/salt-lake/kd-vps-agent/command"
 	"github.com/salt-lake/kd-vps-agent/ratelimit"
@@ -16,13 +18,17 @@ import (
 	"github.com/salt-lake/kd-vps-agent/xray"
 )
 
+// migrateReportSubject agent 迁移完成后向后端回报的 NATS subject。
+// 和 kd-vps-backend/app/node/application/lifecycle/xray_migrate_tier_report.go 保持一致。
+const migrateReportSubject = "node.report.xray.tier-migrated"
+
 //go:embed version-xray.txt
 var versionFile string
 
 const assetName = "node-agent-xray"
 const buildSuffix = "-xray"
 
-func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher) {
+func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher, nc *nats.Conn) {
 	if cfg.APIBase == "" || cfg.ScriptToken == "" {
 		log.Println("xray sync disabled: API_BASE or SCRIPT_TOKEN not set")
 		return
@@ -43,6 +49,23 @@ func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher) {
 	} else {
 		log.Println("ratelimit disabled via RATELIMIT_ENABLED=false")
 	}
+
+	// 注入迁移回报：后端订阅 node.report.xray.tier-migrated 翻转 tb_node.xray_tier_migrated。
+	// 不上报的话后端永远认为失败 → 分享链接仍走 reality 端口 → SVIP 用户拿到错端口。
+	syncer.SetMigrateReporter(func(success bool, errMsg string) {
+		payload, err := json.Marshal(map[string]any{
+			"host":    cfg.Host,
+			"success": success,
+			"error":   errMsg,
+		})
+		if err != nil {
+			log.Printf("migrate report: marshal payload err=%v", err)
+			return
+		}
+		if err := nc.Publish(migrateReportSubject, payload); err != nil {
+			log.Printf("migrate report: publish err=%v", err)
+		}
+	})
 
 	syncer.Start(ctx)
 	tempSync.Start(ctx)

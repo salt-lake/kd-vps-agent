@@ -33,6 +33,10 @@ func (s *XrayUserSync) StartupSync() error {
 		if err := saveSyncState(syncState{LastSyncTime: time.Now().Unix() - 1}); err != nil {
 			log.Printf("xray_sync: save sync state err=%v (non-fatal)", err)
 		}
+		// 启动 / 节点重启后恢复 iptables + tc 规则（从 config 读 portRange）
+		if err := s.applyTCFromState(); err != nil {
+			log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
+		}
 		return nil
 	}
 
@@ -54,6 +58,10 @@ func (s *XrayUserSync) StartupSync() error {
 	log.Printf("xray_sync: startup done via restart, loaded %d users", len(users))
 	if err := saveSyncState(syncState{LastSyncTime: time.Now().Unix() - 1}); err != nil {
 		log.Printf("xray_sync: save sync state err=%v (non-fatal)", err)
+	}
+	// 重启路径同样需要恢复 tc/iptables
+	if err := s.applyTCFromState(); err != nil {
+		log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
 	}
 	return nil
 }
@@ -154,6 +162,10 @@ func (s *XrayUserSync) HourlySync() error {
 
 	toAdd, toRemove, toChange := s.diffUsers(remote, s.tempUserSet())
 	_ = s.applyTierChanges(toAdd, toRemove, toChange, false)
+	// tier 字典可能变化（如 pool_mbps 被后端调整），顺带 re-apply ratelimit
+	if err := s.applyTCFromState(); err != nil {
+		log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
+	}
 	return nil
 }
 
@@ -345,6 +357,9 @@ func (s *XrayUserSync) FullSync() error {
 
 	toAdd, toRemove, toChange := s.diffUsers(remote, s.tempUserSet())
 	_ = s.applyTierChanges(toAdd, toRemove, toChange, false)
+	if err := s.applyTCFromState(); err != nil {
+		log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
+	}
 
 	log.Printf("xray_sync: full sync add=%d remove=%d change=%d", len(toAdd), len(toRemove), len(toChange))
 	return nil

@@ -29,11 +29,29 @@ type migrateTierEntry struct {
 	PoolMbps   int    `json:"poolMbps"`
 }
 
-// MigrateToTiers 执行一次性结构性迁移：
+// MigrateToTiers 是对 doMigrate 的 wrapper：无论成功失败都通过 reporter 回报。
+// 返回值是 doMigrate 的原始错误（便于 handler 把 error message 发回 NATS reply）。
+func (s *XrayUserSync) MigrateToTiers(raw []byte) error {
+	err := s.doMigrate(raw)
+
+	s.mu.Lock()
+	reporter := s.reporter
+	s.mu.Unlock()
+	if reporter != nil {
+		if err != nil {
+			reporter(false, err.Error())
+		} else {
+			reporter(true, "")
+		}
+	}
+	return err
+}
+
+// doMigrate 执行一次性结构性迁移的核心逻辑。
 // 1. 解析 payload
 // 2. 若 config 已双 inbound（幂等）→ 仅刷新缓存 + tc
 // 3. 否则：备份 config → 拉用户 → 写新 config → 开防火墙 → restart xray → 重注入 → apply tc
-func (s *XrayUserSync) MigrateToTiers(raw []byte) error {
+func (s *XrayUserSync) doMigrate(raw []byte) error {
 	var p migrateTierPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return fmt.Errorf("parse migrate payload: %w", err)

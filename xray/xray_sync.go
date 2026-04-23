@@ -33,6 +33,10 @@ type TCApplier interface {
 	Apply(tiers map[string]ratelimit.TierConfig) error
 }
 
+// MigrateReporter 供 MigrateToTiers 回报迁移结果。
+// success=true 时 errMsg 应为空；后端据此翻转 tb_node.xray_tier_migrated。
+type MigrateReporter func(success bool, errMsg string)
+
 // XrayUserSync 管理 xray 用户的全量同步和实时增量操作。
 type XrayUserSync struct {
 	apiBase    string
@@ -47,8 +51,9 @@ type XrayUserSync struct {
 	current             map[string]string     // uuid → tier name；兼容模式下 tier=""
 	xrayAPI             XrayAPI
 	tempSync            *TempUserSync
-	ratelimit           TCApplier // 由外部注入，nil 时不应用 tc
-	restartSyncInFlight int32     // atomic: 1 if syncAfterRestart goroutine is running
+	ratelimit           TCApplier       // 由外部注入，nil 时不应用 tc
+	reporter            MigrateReporter // 由外部注入，nil 时迁移不上报（单元测试场景）
+	restartSyncInFlight int32           // atomic: 1 if syncAfterRestart goroutine is running
 }
 
 // SetTempSync 注入临时用户同步器，供 xray 重启后重注入临时用户。
@@ -61,6 +66,13 @@ func (s *XrayUserSync) SetRatelimit(m TCApplier) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ratelimit = m
+}
+
+// SetMigrateReporter 注入迁移回报函数（publish NATS）。nil 时迁移完只记日志。
+func (s *XrayUserSync) SetMigrateReporter(r MigrateReporter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reporter = r
 }
 
 func NewXrayUserSync(apiBase, token, apiAddr, inboundTag, configPath string) *XrayUserSync {
