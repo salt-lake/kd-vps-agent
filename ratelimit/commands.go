@@ -46,9 +46,10 @@ func buildTeardownArgs(iface string) []string {
 	return []string{"qdisc", "del", "dev", iface, "root"}
 }
 
-// normalizeIptablesPort 把 port range 字符串（如 "34521-34524" 或 "443"）
+// NormalizeIptablesPort 把 port range 字符串（如 "34521-34524" 或 "443"）
 // 转换为 iptables multiport 可接受的格式（"34521:34524" / "443"）。
-func normalizeIptablesPort(portRange string) string {
+// 同时供 xray 包的防火墙规则下发复用。
+func NormalizeIptablesPort(portRange string) string {
 	// iptables 用 `:` 作为端口范围分隔符
 	for i := range portRange {
 		if portRange[i] == '-' {
@@ -63,7 +64,7 @@ func normalizeIptablesPort(portRange string) string {
 func buildIptablesAddMarkArgs(portRange string, mark int) []string {
 	return []string{
 		"-t", "mangle", "-A", "OUTPUT",
-		"-p", "tcp", "--sport", normalizeIptablesPort(portRange),
+		"-p", "tcp", "--sport", NormalizeIptablesPort(portRange),
 		"-j", "MARK", "--set-mark", fmt.Sprintf("%d", mark),
 	}
 }
@@ -73,7 +74,7 @@ func buildIptablesAddMarkArgs(portRange string, mark int) []string {
 func buildIptablesCheckMarkArgs(portRange string, mark int) []string {
 	return []string{
 		"-t", "mangle", "-C", "OUTPUT",
-		"-p", "tcp", "--sport", normalizeIptablesPort(portRange),
+		"-p", "tcp", "--sport", NormalizeIptablesPort(portRange),
 		"-j", "MARK", "--set-mark", fmt.Sprintf("%d", mark),
 	}
 }
@@ -82,7 +83,7 @@ func buildIptablesCheckMarkArgs(portRange string, mark int) []string {
 func buildIptablesDelMarkArgs(portRange string, mark int) []string {
 	return []string{
 		"-t", "mangle", "-D", "OUTPUT",
-		"-p", "tcp", "--sport", normalizeIptablesPort(portRange),
+		"-p", "tcp", "--sport", NormalizeIptablesPort(portRange),
 		"-j", "MARK", "--set-mark", fmt.Sprintf("%d", mark),
 	}
 }

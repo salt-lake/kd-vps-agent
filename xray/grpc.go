@@ -47,7 +47,7 @@ func (s *XrayUserSync) injectUsers(users []userDTO) error {
 			continue
 		}
 		inbound := s.inboundTagForTier(u.Tier)
-		if err := api.AddOrReplaceToTag(ctx, inbound, &User{ID: u.UUID, UUID: u.UUID, Flow: "xtls-rprx-vision"}); err != nil {
+		if err := api.AddOrReplaceToTag(ctx, inbound, &User{ID: u.UUID, UUID: u.UUID, Flow: flowVision}); err != nil {
 			return fmt.Errorf("inject user %s tier=%s to %s: %w", u.UUID, u.Tier, inbound, err)
 		}
 	}
@@ -73,7 +73,7 @@ func (s *XrayUserSync) AddUser(uuid, tier string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := api.AddOrReplaceToTag(ctx, inbound, &User{ID: uuid, UUID: uuid, Flow: "xtls-rprx-vision"}); err != nil {
+	if err := api.AddOrReplaceToTag(ctx, inbound, &User{ID: uuid, UUID: uuid, Flow: flowVision}); err != nil {
 		if strings.Contains(err.Error(), "connection") || strings.Contains(err.Error(), "unavailable") {
 			s.mu.Lock()
 			if s.xrayAPI == api {

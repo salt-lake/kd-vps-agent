@@ -13,6 +13,12 @@ import (
 const (
 	defaultUUID = "a1b2c3d4-0000-0000-0000-000000000001" // 固定测试用户，永不被同步逻辑删除
 
+	// xray vless reality 固定 flow，写 config 和 gRPC 注入都用这一个值
+	flowVision = "xtls-rprx-vision"
+
+	// 固定测试用户的 email，config 里与 defaultUUID 成对出现
+	defaultUserEmail = "default@test"
+
 	// 同步策略
 	deltaSyncInterval   = 5 * time.Minute
 	tempSyncInterval    = 5 * time.Minute

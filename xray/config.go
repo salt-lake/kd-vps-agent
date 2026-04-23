@@ -48,7 +48,7 @@ func (s *XrayUserSync) writeConfig(users []userDTO) error {
 
 	// 按 inbound tag 分组 clients；defaultUUID 加到每个 tier inbound
 	byTag := map[string][]map[string]string{}
-	defaultClient := map[string]string{"id": defaultUUID, "email": "default@test", "flow": "xtls-rprx-vision"}
+	defaultClient := map[string]string{"id": defaultUUID, "email": defaultUserEmail, "flow": flowVision}
 	if singleInboundMode {
 		byTag[fallbackTag] = []map[string]string{defaultClient}
 	} else {
@@ -76,7 +76,7 @@ func (s *XrayUserSync) writeConfig(users []userDTO) error {
 			tag = t.InboundTag
 		}
 		byTag[tag] = append(byTag[tag], map[string]string{
-			"id": u.UUID, "email": emailFromUUID(u.UUID), "flow": "xtls-rprx-vision",
+			"id": u.UUID, "email": emailFromUUID(u.UUID), "flow": flowVision,
 		})
 	}
 

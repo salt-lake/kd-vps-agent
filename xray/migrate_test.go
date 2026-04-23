@@ -81,7 +81,7 @@ func TestMigrateToTiers_ReporterCalledOnIdempotentSuccess(t *testing.T) {
   "outbounds": [{"tag":"direct","protocol":"freedom"}],
   "routing": {"rules": []}
 }`)
-	if err := writeFile(configPath, prebuilt); err != nil {
+	if err := os.WriteFile(configPath, prebuilt, 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,9 +104,4 @@ func TestMigrateToTiers_ReporterCalledOnIdempotentSuccess(t *testing.T) {
 	if !gotSuccess {
 		t.Error("success should be true on idempotent success")
 	}
-}
-
-// 用于上面测试的小工具：简单包一下 os.WriteFile，让测试代码意图清晰。
-func writeFile(path string, data []byte) error {
-	return os.WriteFile(path, data, 0644)
 }

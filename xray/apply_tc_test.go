@@ -99,6 +99,3 @@ func TestReadTierPortsFromConfig_MissingFile(t *testing.T) {
 		t.Error("expected read error on missing file")
 	}
 }
-
-// applyTCFromState 的集成行为（ratelimit 未注入时是 no-op，注入后下发 Apply 且 portRange 正确传入）
-// 由 ratelimit/manager_test.go 的 mock exec 路径充分覆盖，这里只测参数组装侧的 readTierPortsFromConfig。

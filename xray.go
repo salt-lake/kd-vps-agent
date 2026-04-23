@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/salt-lake/kd-vps-agent/collect"
@@ -51,7 +52,8 @@ func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher, nc *nats.
 	}
 
 	// 注入迁移回报：后端订阅 node.report.xray.tier-migrated 翻转 tb_node.xray_tier_migrated。
-	// 不上报的话后端永远认为失败 → 分享链接仍走 reality 端口 → SVIP 用户拿到错端口。
+	// 丢失上报会让后端永远停在 migrated=false，分享链接生成器用 reality 端口，SVIP 用户连错 inbound。
+	// 所以这里 Publish 后必须 Flush 把消息挤到 socket，而不是仅落入客户端缓冲。
 	syncer.SetMigrateReporter(func(success bool, errMsg string) {
 		payload, err := json.Marshal(map[string]any{
 			"host":    cfg.Host,
@@ -64,6 +66,10 @@ func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher, nc *nats.
 		}
 		if err := nc.Publish(migrateReportSubject, payload); err != nil {
 			log.Printf("migrate report: publish err=%v", err)
+			return
+		}
+		if err := nc.FlushTimeout(2 * time.Second); err != nil {
+			log.Printf("migrate report: flush err=%v", err)
 		}
 	})
 

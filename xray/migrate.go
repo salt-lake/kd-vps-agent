@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/salt-lake/kd-vps-agent/ratelimit"
@@ -200,7 +199,7 @@ func (s *XrayUserSync) writeMultiInboundConfig(orig []byte, p migrateTierPayload
 
 	// 按 inbound tag 分组 clients（defaultUUID 写入每个 tier inbound）
 	byTag := map[string][]map[string]string{}
-	defaultClient := map[string]string{"id": defaultUUID, "email": "default@test", "flow": "xtls-rprx-vision"}
+	defaultClient := map[string]string{"id": defaultUUID, "email": defaultUserEmail, "flow": flowVision}
 	for _, t := range p.Tiers {
 		byTag[t.InboundTag] = []map[string]string{defaultClient}
 	}
@@ -214,7 +213,7 @@ func (s *XrayUserSync) writeMultiInboundConfig(orig []byte, p migrateTierPayload
 		}
 		tag := p.Tiers[tier].InboundTag
 		byTag[tag] = append(byTag[tag], map[string]string{
-			"id": u.UUID, "email": emailFromUUID(u.UUID), "flow": "xtls-rprx-vision",
+			"id": u.UUID, "email": emailFromUUID(u.UUID), "flow": flowVision,
 		})
 	}
 
@@ -266,7 +265,7 @@ func (s *XrayUserSync) writeMultiInboundConfig(orig []byte, p migrateTierPayload
 // openFirewallPort 对一个 port range（如 "45000-45003" 或单端口 "443"）加 iptables ACCEPT 规则。
 // 幂等：先 -C 检查已存在则跳过，否则 -I 插入。
 func openFirewallPort(portRange string) error {
-	pr := strings.Replace(portRange, "-", ":", 1) // iptables multiport 用 `:` 分隔
+	pr := ratelimit.NormalizeIptablesPort(portRange)
 	if err := exec.Command("iptables", "-C", "INPUT", "-p", "tcp", "--dport", pr, "-j", "ACCEPT").Run(); err == nil {
 		return nil // 已存在
 	}

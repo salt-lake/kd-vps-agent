@@ -72,7 +72,7 @@ func TestNormalizeIptablesPort(t *testing.T) {
 		{"", ""},
 	}
 	for _, tc := range tests {
-		if got := normalizeIptablesPort(tc.in); got != tc.want {
+		if got := NormalizeIptablesPort(tc.in); got != tc.want {
 			t.Errorf("in=%q got %q want %q", tc.in, got, tc.want)
 		}
 	}
