@@ -10,13 +10,14 @@ import (
 // XrayUserManager 定义 command 包对 xray 用户管理的依赖接口，
 // 避免直接 import sync 包（依赖倒置）。
 type XrayUserManager interface {
-	AddUser(uuid string) error
+	AddUser(uuid, tier string) error
 	RemoveUser(uuid string) error
 }
 
 type xrayUserPayload struct {
 	UUID  string `json:"uuid"`
 	Email string `json:"email"`
+	Tier  string `json:"tier,omitempty"` // 老后端发送空字符串，走兼容路径
 }
 
 // XrayUserAddHandler 处理 xray_user_add 指令。
@@ -41,8 +42,8 @@ func (h XrayUserAddHandler) Handle(data []byte) ([]byte, error) {
 	if p.UUID == "" {
 		return errResp("uuid is required"), nil
 	}
-	if err := h.syncer.AddUser(p.UUID); err != nil {
-		log.Printf("xray_user_add: uuid=%s err=%v", p.UUID, err)
+	if err := h.syncer.AddUser(p.UUID, p.Tier); err != nil {
+		log.Printf("xray_user_add: uuid=%s tier=%s err=%v", p.UUID, p.Tier, err)
 		return errResp(err.Error()), nil
 	}
 	return okResp("ok"), nil

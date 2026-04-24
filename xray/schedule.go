@@ -14,14 +14,20 @@ import (
 )
 
 // StartupSync 平滑初始化：
-// 1. 全量写配置文件（持久化保证）。
-// 2. 尝试探测 gRPC，如果可用则动态注入用户跳过重启。
-// 3. 如果 gRPC 不可用，执行 systemctl restart xray。
+// 1. 从后端拉用户，更新 tiers 缓存
+// 2. 全量写配置文件（持久化保证）
+// 3. 尝试探测 gRPC，如果可用则动态注入用户跳过重启
+// 4. 如果 gRPC 不可用，执行 systemctl restart xray
 func (s *XrayUserSync) StartupSync() error {
 	users, err := s.fetchUsers()
 	if err != nil {
 		return fmt.Errorf("fetch users: %w", err)
 	}
+
+	// 预迁移节点："后端已有 tier 配置，但本地 xray config 仍是单 inbound"。
+	// 此时若照 tier 路由会对所有 AddUser 返回 "handler not found: proxy-vip"。
+	// 只要等到 xray_migrate_tier 指令落地前，都按单 inbound 兼容模式跑。
+	s.maybeClearTiersIfUnmigrated()
 
 	if err := s.writeConfig(users); err != nil {
 		return fmt.Errorf("write config: %w", err)
@@ -32,6 +38,11 @@ func (s *XrayUserSync) StartupSync() error {
 		if err := saveSyncState(syncState{LastSyncTime: time.Now().Unix() - 1}); err != nil {
 			log.Printf("xray_sync: save sync state err=%v (non-fatal)", err)
 		}
+		// 启动 / 节点重启后恢复 iptables + tc 规则（从 config 读 portRange）
+		if err := s.applyTCFromState(); err != nil {
+			log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
+		}
+		s.signalStartupReady()
 		return nil
 	}
 
@@ -44,9 +55,9 @@ func (s *XrayUserSync) StartupSync() error {
 	}
 
 	s.mu.Lock()
-	s.current = make(map[string]struct{}, len(users))
+	s.current = make(map[string]string, len(users))
 	for _, u := range users {
-		s.current[u.UUID] = struct{}{}
+		s.current[u.UUID] = u.Tier
 	}
 	s.mu.Unlock()
 
@@ -54,17 +65,35 @@ func (s *XrayUserSync) StartupSync() error {
 	if err := saveSyncState(syncState{LastSyncTime: time.Now().Unix() - 1}); err != nil {
 		log.Printf("xray_sync: save sync state err=%v (non-fatal)", err)
 	}
+	// 重启路径同样需要恢复 tc/iptables
+	if err := s.applyTCFromState(); err != nil {
+		log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
+	}
+	s.signalStartupReady()
 	return nil
 }
 
-// diffUsers 计算 remote 与 current 的差集，返回需要新增和删除的 UUID 列表。
-// exclude 中的 UUID（临时用户）不会出现在 toRemove 中。
-func (s *XrayUserSync) diffUsers(remote, exclude map[string]struct{}) (toAdd, toRemove []string) {
+// userChange 升降级场景：tier 变化。
+type userChange struct {
+	UUID     string
+	FromTier string
+	ToTier   string
+}
+
+// diffUsers 返回 add / remove / changeTier 三态。
+// remote: uuid → tier name。
+// exclude: 临时用户 UUID（永不 remove）。
+func (s *XrayUserSync) diffUsers(remote map[string]string, exclude map[string]struct{}) (toAdd []userDTO, toRemove []string, toChange []userChange) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for uuid := range remote {
-		if _, ok := s.current[uuid]; !ok {
-			toAdd = append(toAdd, uuid)
+	for uuid, rtier := range remote {
+		ctier, ok := s.current[uuid]
+		if !ok {
+			toAdd = append(toAdd, userDTO{UUID: uuid, Tier: rtier})
+			continue
+		}
+		if ctier != rtier {
+			toChange = append(toChange, userChange{UUID: uuid, FromTier: ctier, ToTier: rtier})
 		}
 	}
 	for uuid := range s.current {
@@ -89,33 +118,66 @@ func (s *XrayUserSync) tempUserSet() map[string]struct{} {
 	return s.tempSync.UUIDSet()
 }
 
-// HourlySync 拉全量用户，diff current，只对变更用户调 xray API。
+// applyTierChanges 执行三态同步：先 remove，再 change（remove+add），最后 add。
+// onErr 控制错误处理：fatal=true 时遇到错误立即返回；false 时只 log 继续。
+func (s *XrayUserSync) applyTierChanges(toAdd []userDTO, toRemove []string, toChange []userChange, fatal bool) error {
+	for _, uuid := range toRemove {
+		if err := s.RemoveUser(uuid); err != nil {
+			if fatal {
+				return fmt.Errorf("remove user=%s: %w", uuid, err)
+			}
+			log.Printf("xray_sync: remove user=%s err=%v (continuing)", uuid, err)
+		}
+	}
+	for _, c := range toChange {
+		if err := s.RemoveUser(c.UUID); err != nil {
+			if fatal {
+				return fmt.Errorf("change remove user=%s: %w", c.UUID, err)
+			}
+			log.Printf("xray_sync: change remove user=%s err=%v (continuing)", c.UUID, err)
+			continue
+		}
+		if err := s.AddUser(c.UUID, c.ToTier); err != nil {
+			if fatal {
+				return fmt.Errorf("change add user=%s tier=%s: %w", c.UUID, c.ToTier, err)
+			}
+			log.Printf("xray_sync: change add user=%s tier=%s err=%v (continuing)", c.UUID, c.ToTier, err)
+		}
+	}
+	for _, u := range toAdd {
+		if err := s.AddUser(u.UUID, u.Tier); err != nil {
+			if fatal {
+				return fmt.Errorf("add user=%s tier=%s: %w", u.UUID, u.Tier, err)
+			}
+			log.Printf("xray_sync: add user=%s tier=%s err=%v (continuing)", u.UUID, u.Tier, err)
+		}
+	}
+	return nil
+}
+
+// HourlySync 拉全量用户，diff current，只对变更用户调 xray API。个别错误不阻塞。
 func (s *XrayUserSync) HourlySync() error {
 	users, err := s.fetchUsers()
 	if err != nil {
 		return fmt.Errorf("fetch users: %w", err)
 	}
 
-	remote := make(map[string]struct{}, len(users))
+	remote := make(map[string]string, len(users))
 	for _, u := range users {
-		remote[u.UUID] = struct{}{}
+		remote[u.UUID] = u.Tier
 	}
 
-	toAdd, toRemove := s.diffUsers(remote, s.tempUserSet())
-	for _, uuid := range toAdd {
-		if err := s.AddUser(uuid); err != nil {
-			log.Printf("xray_sync: hourly add user=%s err=%v", uuid, err)
-		}
-	}
-	for _, uuid := range toRemove {
-		if err := s.RemoveUser(uuid); err != nil {
-			log.Printf("xray_sync: hourly remove user=%s err=%v", uuid, err)
-		}
+	toAdd, toRemove, toChange := s.diffUsers(remote, s.tempUserSet())
+	_ = s.applyTierChanges(toAdd, toRemove, toChange, false)
+	// tier 字典可能变化（如 pool_mbps 被后端调整），顺带 re-apply ratelimit
+	if err := s.applyTCFromState(); err != nil {
+		log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
 	}
 	return nil
 }
 
 // DeltaSync 拉增量变更并应用。无状态文件时降级全量 HourlySync。
+// delta 错误是 fatal（会传播）。
 func (s *XrayUserSync) DeltaSync() error {
 	state, err := loadSyncState()
 	if err != nil {
@@ -128,14 +190,15 @@ func (s *XrayUserSync) DeltaSync() error {
 		return fmt.Errorf("fetch delta: %w", err)
 	}
 
-	for _, uuid := range delta.Added {
-		if err := s.AddUser(uuid); err != nil {
-			return fmt.Errorf("delta add user=%s: %w", uuid, err)
-		}
-	}
+	// Delta 语义：先 remove 再 add，保证 tier 变化时干净
 	for _, uuid := range delta.Removed {
 		if err := s.RemoveUser(uuid); err != nil {
 			return fmt.Errorf("delta remove user=%s: %w", uuid, err)
+		}
+	}
+	for _, u := range delta.Added {
+		if err := s.AddUser(u.UUID, u.Tier); err != nil {
+			return fmt.Errorf("delta add user=%s tier=%s: %w", u.UUID, u.Tier, err)
 		}
 	}
 
@@ -238,8 +301,7 @@ func (s *XrayUserSync) watchXrayHealth(ctx context.Context) {
 	}
 }
 
-// Start 启动 xray 用户同步的所有后台 goroutine（startup 重试、每小时 delta、每 5 分钟 check_dest）。
-// goroutine 在 ctx 取消时退出。
+// Start 启动 xray 用户同步的所有后台 goroutine。
 func (s *XrayUserSync) Start(ctx context.Context) {
 	go func() {
 		for {
@@ -295,23 +357,17 @@ func (s *XrayUserSync) FullSync() error {
 		return fmt.Errorf("fetch users: %w", err)
 	}
 
-	remote := make(map[string]struct{}, len(users))
+	remote := make(map[string]string, len(users))
 	for _, u := range users {
-		remote[u.UUID] = struct{}{}
+		remote[u.UUID] = u.Tier
 	}
 
-	toAdd, toRemove := s.diffUsers(remote, s.tempUserSet())
-	for _, uuid := range toAdd {
-		if err := s.AddUser(uuid); err != nil {
-			log.Printf("xray_sync: full sync add user=%s err=%v (continuing)", uuid, err)
-		}
-	}
-	for _, uuid := range toRemove {
-		if err := s.RemoveUser(uuid); err != nil {
-			log.Printf("xray_sync: full sync remove user=%s err=%v (continuing)", uuid, err)
-		}
+	toAdd, toRemove, toChange := s.diffUsers(remote, s.tempUserSet())
+	_ = s.applyTierChanges(toAdd, toRemove, toChange, false)
+	if err := s.applyTCFromState(); err != nil {
+		log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
 	}
 
-	log.Printf("xray_sync: full sync done add=%d remove=%d", len(toAdd), len(toRemove))
+	log.Printf("xray_sync: full sync add=%d remove=%d change=%d", len(toAdd), len(toRemove), len(toChange))
 	return nil
 }
