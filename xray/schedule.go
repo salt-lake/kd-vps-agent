@@ -37,6 +37,7 @@ func (s *XrayUserSync) StartupSync() error {
 		if err := s.applyTCFromState(); err != nil {
 			log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
 		}
+		s.signalStartupReady()
 		return nil
 	}
 
@@ -63,6 +64,7 @@ func (s *XrayUserSync) StartupSync() error {
 	if err := s.applyTCFromState(); err != nil {
 		log.Printf("xray_sync: apply tc from state err=%v (non-fatal)", err)
 	}
+	s.signalStartupReady()
 	return nil
 }
 

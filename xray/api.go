@@ -147,6 +147,19 @@ func (s *XrayUserSync) fetchUsers() ([]userDTO, error) {
 				}
 				s.mu.Lock()
 				s.tiers = tiers
+				// s.defaultTier 只在迁移指令时才被显式设置。重启后丢失，这里补一个推断：
+				// 优先 "vip"（全局约定），否则挑任一 tier。保证空 tier 的 AddUser 能落到
+				// 一个真实存在的 inbound 上。
+				if s.defaultTier == "" && len(tiers) > 0 {
+					if _, ok := tiers["vip"]; ok {
+						s.defaultTier = "vip"
+					} else {
+						for name := range tiers {
+							s.defaultTier = name
+							break
+						}
+					}
+				}
 				s.mu.Unlock()
 				if v2.Data.Users != nil {
 					result = v2.Data.Users

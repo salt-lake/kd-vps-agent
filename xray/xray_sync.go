@@ -60,6 +60,12 @@ type XrayUserSync struct {
 	ratelimit           TCApplier       // 由外部注入，nil 时不应用 tc
 	reporter            MigrateReporter // 由外部注入，nil 时迁移不上报（单元测试场景）
 	restartSyncInFlight int32           // atomic: 1 if syncAfterRestart goroutine is running
+
+	// startupReady 在首次 StartupSync 成功（tiers 已从后端拉到、用户已注入）后被关闭。
+	// 其它 goroutine（如 tempSync.Start）必须先 <-s.StartupReady() 才能安全 AddUser，
+	// 否则在迁移后的节点上空 tier 会路由到不存在的老 inbound。
+	startupReady chan struct{}
+	startupOnce  sync.Once
 }
 
 // SetTempSync 注入临时用户同步器，供 xray 重启后重注入临时用户。
@@ -83,14 +89,26 @@ func (s *XrayUserSync) SetMigrateReporter(r MigrateReporter) {
 
 func NewXrayUserSync(apiBase, token, apiAddr, inboundTag, configPath string) *XrayUserSync {
 	return &XrayUserSync{
-		apiBase:    apiBase,
-		token:      token,
-		apiAddr:    apiAddr,
-		inboundTag: inboundTag,
-		configPath: configPath,
-		current:    make(map[string]string),
-		tiers:      make(map[string]TierConfig),
+		apiBase:      apiBase,
+		token:        token,
+		apiAddr:      apiAddr,
+		inboundTag:   inboundTag,
+		configPath:   configPath,
+		current:      make(map[string]string),
+		tiers:        make(map[string]TierConfig),
+		startupReady: make(chan struct{}),
 	}
+}
+
+// StartupReady 返回一个 channel：首次 StartupSync 成功后被关闭。
+// TempUserSync 等依赖方可以 select 它来确保 tiers 缓存已填充后再 AddUser。
+func (s *XrayUserSync) StartupReady() <-chan struct{} {
+	return s.startupReady
+}
+
+// signalStartupReady 在首次 StartupSync 成功时调用，幂等。
+func (s *XrayUserSync) signalStartupReady() {
+	s.startupOnce.Do(func() { close(s.startupReady) })
 }
 
 // Tiers 返回当前缓存的 tier 字典的快照副本（供外部 ratelimit manager 调用）。
@@ -105,11 +123,13 @@ func (s *XrayUserSync) Tiers() map[string]TierConfig {
 }
 
 // inboundTagForTier 根据 tier 名选 inbound tag。
-// - 兼容模式（tiers 为空）或 tier=""：返回 s.inboundTag
-// - tier 在 tiers 里：返回对应的 inboundTag
-// - tier 未知：fallback 到 defaultTier 的 inboundTag，再 fallback 到 s.inboundTag
-// 调用方必须持有 s.mu，或接受快照在调用期间被改动的风险。
-// 为简化：内部先取快照再用。
+// 决策顺序：
+//  1. 兼容模式（tiers 字典为空）：返回 s.inboundTag（老的单 inbound）
+//  2. 多 tier 模式下 tier 能匹配：返回该 tier 的 inboundTag
+//  3. 多 tier 模式下 tier 匹配不到（空或未知）：fallback 到 defaultTier 的 inboundTag
+//  4. 最后兜底 s.inboundTag
+// 关键修正：一旦 tiers 非空（迁移后），就不再用 s.inboundTag，避免往已被移除的老
+// "proxy" inbound 发包（temp_sync 用 tier="" 调用会踩这个坑）。
 func (s *XrayUserSync) inboundTagForTier(tier string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -118,15 +138,28 @@ func (s *XrayUserSync) inboundTagForTier(tier string) string {
 
 // inboundTagForTierLocked 同 inboundTagForTier，调用方已持 s.mu。
 func (s *XrayUserSync) inboundTagForTierLocked(tier string) string {
-	if tier == "" {
+	// 兼容模式：未配置任何 tier，走老单 inbound
+	if len(s.tiers) == 0 {
 		return s.inboundTag
 	}
-	if t, ok := s.tiers[tier]; ok {
+	// 多 tier 模式：精确匹配优先
+	if tier != "" {
+		if t, ok := s.tiers[tier]; ok {
+			return t.InboundTag
+		}
+	}
+	// tier 为空或未知：回退到 defaultTier 的 inboundTag
+	if s.defaultTier != "" {
+		if t, ok := s.tiers[s.defaultTier]; ok {
+			return t.InboundTag
+		}
+	}
+	// 多 tier 模式下 defaultTier 也没命中（异常情况）：任挑一个存在的 tier，
+	// 不返回 s.inboundTag（老的 "proxy" 迁移后已经不存在了）。
+	for _, t := range s.tiers {
 		return t.InboundTag
 	}
-	if t, ok := s.tiers[s.defaultTier]; ok {
-		return t.InboundTag
-	}
+	// 真的没 tier 就只能兜底
 	return s.inboundTag
 }
 

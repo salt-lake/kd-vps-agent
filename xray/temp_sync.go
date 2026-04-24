@@ -21,6 +21,12 @@ type TempUserSync struct {
 	apiBase string
 	token   string
 	manager userManager
+
+	// readyCh 非 nil 时，Start 会先等它被关闭（通常是 XrayUserSync.StartupReady()），
+	// 确保父 syncer 已完成首次 fetchUsers，tiers 缓存就绪。避免迁移后的节点上
+	// temp users 被路由到已不存在的老 inbound。
+	readyCh <-chan struct{}
+
 	mu      sync.RWMutex
 	version string
 	uuids   []string
@@ -32,6 +38,11 @@ func NewTempUserSync(apiBase, token string, manager userManager) *TempUserSync {
 		token:   token,
 		manager: manager,
 	}
+}
+
+// SetReadyChannel 注入一个等待信号。Start() 会先等它关闭再开始 startup。
+func (t *TempUserSync) SetReadyChannel(ch <-chan struct{}) {
+	t.readyCh = ch
 }
 
 // startup 初次拉取并注入全部临时用户。
@@ -133,9 +144,18 @@ func (t *TempUserSync) UUIDSet() map[string]struct{} {
 	return set
 }
 
-// Start 启动后台 goroutine：先 startup（30s 重试），再每 5 分钟 poll。
+// Start 启动后台 goroutine：
+// 1. 若注入了 readyCh，先阻塞等父 syncer 就绪（首次 fetchUsers 完成）
+// 2. 首次 startup（30s 重试），再每 5 分钟 poll
 func (t *TempUserSync) Start(ctx context.Context) {
 	go func() {
+		if t.readyCh != nil {
+			select {
+			case <-t.readyCh:
+			case <-ctx.Done():
+				return
+			}
+		}
 		for {
 			if err := t.startup(); err != nil {
 				log.Printf("temp_sync: startup err=%v, retrying in 30s", err)

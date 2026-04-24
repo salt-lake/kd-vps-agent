@@ -47,7 +47,7 @@ func (m *Manager) Apply(tiers map[string]TierConfig) error {
 	defer m.mu.Unlock()
 
 	if !m.rootInstalled {
-		if err := m.runTC(buildRootQdiscArgs(m.iface)); err != nil {
+		if err := m.ensureRootQdisc(); err != nil {
 			return fmt.Errorf("root qdisc: %w", err)
 		}
 		m.rootInstalled = true
@@ -156,6 +156,24 @@ func (m *Manager) Disable() error {
 // runTC 调用注入的 exec，第一个参数固定为 "tc"。
 func (m *Manager) runTC(args []string) error {
 	return m.exec("tc", args...)
+}
+
+// ensureRootQdisc 安装根 htb qdisc；若已存在同样配置内核返回
+// "Change operation not supported"（Ubuntu 22.04 kernel 5.15 上遇到过，
+// qdisc 已经装好了但 replace 改不动 default class 之类的参数），视为已就绪。
+// 其他错误原样返回。
+func (m *Manager) ensureRootQdisc() error {
+	err := m.runTC(buildRootQdiscArgs(m.iface))
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "Change operation not supported") ||
+		strings.Contains(msg, "File exists") {
+		// 期望状态已经存在，视为幂等成功
+		return nil
+	}
+	return err
 }
 
 func isNoSuchFileErr(err error) bool {

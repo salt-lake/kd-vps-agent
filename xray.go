@@ -39,6 +39,9 @@ func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher, nc *nats.
 		cfg.XrayAPIAddr, cfg.XrayInboundTag, cfg.XrayConfigPath,
 	)
 	tempSync := xray.NewTempUserSync(cfg.APIBase, cfg.ScriptToken, syncer)
+	// tempSync 要等 syncer 首次 fetchUsers 成功（tiers 就绪）后再 AddUser，
+	// 否则迁移后节点上空 tier 会路由到已不存在的老 "proxy" inbound。
+	tempSync.SetReadyChannel(syncer.StartupReady())
 	syncer.SetTempSync(tempSync)
 
 	// 限速能力：若启用，初始化 ratelimit manager 并注入 syncer

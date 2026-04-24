@@ -151,7 +151,8 @@ func (a *GRPCXrayAPI) insertUser(ctx context.Context, inboundTag string, user *U
 	cctx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
 	_, err = a.client.AlterInbound(cctx, req)
-	if err != nil {
+	if err != nil && !isXrayAlreadyExists(err) {
+		// "already exists" 由上层 AddOrReplace 处理（先删后加），不需要 log，避免刷屏
 		log.Printf("[XRAY] add_user failed addr=%s inbound=%s email=%s id=%s uuid=%s err=%v",
 			a.addr, inboundTag, prUser.Email, user.ID, user.UUID, err)
 	}
