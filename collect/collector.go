@@ -9,7 +9,8 @@ type Payload struct {
 	D       string                  `json:"d"`                 // 日出站流量
 	MR      string                  `json:"m_r"`               // 月入站流量
 	DR      string                  `json:"d_r"`               // 日入站流量
-	Conn    string                  `json:"conn"`              // 连接数
+	Conn    string                  `json:"conn"`              // 连接数（迁移后为所有 proxy* inbound 唯一源 IP 去重合计）
+	ConnByTag map[string]string     `json:"connByTag,omitempty"` // 按 inbound tag 细分的在线数（老 agent / 单 inbound 节点不填）
 	Mem     string                  `json:"mem"`               // 内存占用百分比
 	CPU     string                  `json:"cpu"`               // CPU 占用百分比
 	Disk    string                  `json:"disk"`              // 磁盘占用百分比

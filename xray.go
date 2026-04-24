@@ -95,7 +95,7 @@ func buildProviders(cfg Config) []collect.MetricProvider {
 	providers := []collect.MetricProvider{
 		collect.NewSysProvider(),
 		collect.NewTrafficProvider(cfg.Iface),
-		collect.NewXrayProvider(cfg.XrayAPIAddr, cfg.XrayConfigPath, cfg.XrayInboundTag),
+		collect.NewXrayProvider(cfg.XrayAPIAddr, cfg.XrayConfigPath),
 	}
 	if cfg.RatelimitEnabled {
 		iface := resolveRatelimitIface(context.Background(), cfg)
