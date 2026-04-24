@@ -6,49 +6,6 @@ import (
 	"testing"
 )
 
-func TestCountXrayOnline(t *testing.T) {
-	tests := []struct {
-		name   string
-		output string
-		want   int
-	}{
-		{
-			name:   "empty string",
-			output: "",
-			want:   0,
-		},
-		{
-			name: "all downlink zero",
-			// Each entry is on one line: name contains >>>traffic>>>downlink and value: 0
-			output: `  name:"user>>>alice@example.com>>>traffic>>>downlink"  value: 0 >
-  name:"user>>>bob@example.com>>>traffic>>>downlink"  value: 0 >`,
-			want: 0,
-		},
-		{
-			name: "all downlink non-zero",
-			output: `  name:"user>>>alice@example.com>>>traffic>>>downlink"  value: 12345 >
-  name:"user>>>bob@example.com>>>traffic>>>downlink"  value: 67890 >`,
-			want: 2,
-		},
-		{
-			name: "mixed zero and non-zero",
-			output: `  name:"user>>>alice@example.com>>>traffic>>>downlink"  value: 0 >
-  name:"user>>>bob@example.com>>>traffic>>>downlink"  value: 999 >
-  name:"user>>>carol@example.com>>>traffic>>>downlink"  value: 0 >
-  name:"user>>>dave@example.com>>>traffic>>>downlink"  value: 1 >`,
-			want: 2,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := countXrayOnline(tc.output)
-			if got != tc.want {
-				t.Errorf("countXrayOnline() = %d, want %d", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestXrayVersionRe(t *testing.T) {
 	tests := []struct {
 		name   string

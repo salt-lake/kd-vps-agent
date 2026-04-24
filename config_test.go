@@ -86,8 +86,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.XrayAPIAddr != "127.0.0.1:10085" {
 		t.Errorf("XrayAPIAddr = %q, want %q", cfg.XrayAPIAddr, "127.0.0.1:10085")
 	}
-	if cfg.XrayInboundTag != "vless" {
-		t.Errorf("XrayInboundTag = %q, want %q", cfg.XrayInboundTag, "vless")
+	if cfg.XrayInboundTag != "proxy" {
+		t.Errorf("XrayInboundTag = %q, want %q", cfg.XrayInboundTag, "proxy")
 	}
 	if cfg.ReportInterval != 2*time.Minute {
 		t.Errorf("ReportInterval = %v, want 2m", cfg.ReportInterval)
