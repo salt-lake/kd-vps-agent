@@ -24,6 +24,11 @@ func (s *XrayUserSync) StartupSync() error {
 		return fmt.Errorf("fetch users: %w", err)
 	}
 
+	// 预迁移节点："后端已有 tier 配置，但本地 xray config 仍是单 inbound"。
+	// 此时若照 tier 路由会对所有 AddUser 返回 "handler not found: proxy-vip"。
+	// 只要等到 xray_migrate_tier 指令落地前，都按单 inbound 兼容模式跑。
+	s.maybeClearTiersIfUnmigrated()
+
 	if err := s.writeConfig(users); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}

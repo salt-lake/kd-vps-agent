@@ -99,3 +99,88 @@ func TestReadTierPortsFromConfig_MissingFile(t *testing.T) {
 		t.Error("expected read error on missing file")
 	}
 }
+
+// 预迁移场景：s.tiers 非空（后端下发了），但 xray config 里没有对应 inbound tag。
+// maybeClearTiersIfUnmigrated 应该清空缓存退回兼容模式。
+func TestMaybeClearTiersIfUnmigrated_ClearsWhenInboundMissing(t *testing.T) {
+	// xray config 只有老单 inbound "proxy"
+	configPath := writeConfigWithInbounds(t, []map[string]any{
+		{"tag": "proxy", "port": "33456"},
+	})
+
+	s := &XrayUserSync{
+		configPath: configPath,
+		tiers: map[string]TierConfig{
+			"vip":  {MarkID: 1, InboundTag: "proxy-vip", PoolMbps: 100},
+			"svip": {MarkID: 2, InboundTag: "proxy-svip", PoolMbps: 500},
+		},
+		defaultTier: "vip",
+	}
+
+	s.maybeClearTiersIfUnmigrated()
+
+	if len(s.tiers) != 0 {
+		t.Errorf("tiers should be cleared when config is single-inbound, got %v", s.tiers)
+	}
+	if s.defaultTier != "" {
+		t.Errorf("defaultTier should be cleared, got %q", s.defaultTier)
+	}
+}
+
+// 已迁移场景：config 里所有 tier inboundTag 都存在。不应清空。
+func TestMaybeClearTiersIfUnmigrated_KeepsWhenAllPresent(t *testing.T) {
+	configPath := writeConfigWithInbounds(t, []map[string]any{
+		{"tag": "proxy-vip", "port": "443"},
+		{"tag": "proxy-svip", "port": "8443"},
+	})
+
+	s := &XrayUserSync{
+		configPath: configPath,
+		tiers: map[string]TierConfig{
+			"vip":  {MarkID: 1, InboundTag: "proxy-vip", PoolMbps: 100},
+			"svip": {MarkID: 2, InboundTag: "proxy-svip", PoolMbps: 500},
+		},
+		defaultTier: "vip",
+	}
+
+	s.maybeClearTiersIfUnmigrated()
+
+	if len(s.tiers) != 2 {
+		t.Errorf("tiers should be preserved when config is multi-inbound, got %v", s.tiers)
+	}
+	if s.defaultTier != "vip" {
+		t.Errorf("defaultTier should be preserved, got %q", s.defaultTier)
+	}
+}
+
+// 部分迁移（一个 tier 的 inbound 存在、另一个缺失）— 保守处理：视为未迁移清空。
+func TestMaybeClearTiersIfUnmigrated_PartialMissing(t *testing.T) {
+	configPath := writeConfigWithInbounds(t, []map[string]any{
+		{"tag": "proxy-vip", "port": "443"},
+		// 缺 proxy-svip
+	})
+
+	s := &XrayUserSync{
+		configPath: configPath,
+		tiers: map[string]TierConfig{
+			"vip":  {InboundTag: "proxy-vip"},
+			"svip": {InboundTag: "proxy-svip"},
+		},
+		defaultTier: "vip",
+	}
+
+	s.maybeClearTiersIfUnmigrated()
+
+	if len(s.tiers) != 0 {
+		t.Errorf("partial missing should clear tiers, got %v", s.tiers)
+	}
+}
+
+// 兼容模式（tiers 本来就是空）不应 panic，也不该报错
+func TestMaybeClearTiersIfUnmigrated_NoOpWhenEmpty(t *testing.T) {
+	s := &XrayUserSync{
+		configPath: "/nonexistent/config.json",
+		tiers:      map[string]TierConfig{},
+	}
+	s.maybeClearTiersIfUnmigrated() // 不 panic 就算过
+}

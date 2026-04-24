@@ -12,6 +12,39 @@ import (
 	"github.com/salt-lake/kd-vps-agent/ratelimit"
 )
 
+// maybeClearTiersIfUnmigrated 检测"后端已下发 tier 配置，但本地 xray config 还是单 inbound"
+// 的预迁移状态。这种情况下 tier 路由会失败（"handler not found"），干脆把 s.tiers 清空
+// 让 agent 退回兼容模式。xray_migrate_tier 指令落地后 cacheTiers 会重新填上。
+func (s *XrayUserSync) maybeClearTiersIfUnmigrated() {
+	s.mu.Lock()
+	if len(s.tiers) == 0 {
+		s.mu.Unlock()
+		return
+	}
+	tiersCopy := make(map[string]TierConfig, len(s.tiers))
+	for k, v := range s.tiers {
+		tiersCopy[k] = v
+	}
+	s.mu.Unlock()
+
+	ports, err := readTierPortsFromConfig(s.configPath, tiersCopy)
+	if err != nil {
+		// 读配置失败不动，让下游按既有缓存继续
+		return
+	}
+	// 要求所有 tier 的 inboundTag 都在 xray config 里存在；否则视为未迁移
+	for name := range tiersCopy {
+		if _, ok := ports[name]; !ok {
+			s.mu.Lock()
+			s.tiers = map[string]TierConfig{}
+			s.defaultTier = ""
+			s.mu.Unlock()
+			log.Printf("xray_sync: config not fully migrated to multi-inbound (tier=%s missing), running in compat mode until xray_migrate_tier indicator", name)
+			return
+		}
+	}
+}
+
 // applyTCFromState 按当前 tiers 缓存 + 读 xray config 拿到每 tier 的 portRange 后，下发 ratelimit 规则。
 // 供 agent 启动 / 节点重启后恢复 iptables + tc 状态；也在稳态同步到 tiers 变化（如 pool_mbps 调整）后调用。
 // 兼容模式（s.tiers 为空）或 ratelimit 未注入时，静默跳过。
