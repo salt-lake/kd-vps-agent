@@ -138,7 +138,7 @@ func updateServiceEnv(env map[string]string) error {
 }
 
 // syncAgentEnvFile 将本次更新的 key 同步回 /etc/node-agent.env，
-// 避免重跑 agent_setup.sh 时用旧值覆盖 update_config 的改动。
+// 避免节点重新 bootstrap 时 agent_install.sh 用旧值覆盖 update_config 的改动。
 // 文件中不存在的 key 不追加（bootstrap 没写的字段保持不变）。
 func syncAgentEnvFile(env map[string]string) error {
 	data, err := os.ReadFile(agentEnvFilePath)
