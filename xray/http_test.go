@@ -109,7 +109,8 @@ func TestHTTPAPI_BadRequests(t *testing.T) {
 		{"add empty body", newRequest(http.MethodPost, "/xray/users", "", "tok"), http.StatusBadRequest},
 		{"add bad json", newRequest(http.MethodPost, "/xray/users", `{`, "tok"), http.StatusBadRequest},
 		{"add missing uuid", newRequest(http.MethodPost, "/xray/users", `{}`, "tok"), http.StatusBadRequest},
-		{"remove no uuid", newRequest(http.MethodDelete, "/xray/users/", "", "tok"), http.StatusBadRequest},
+		{"remove no uuid", newRequest(http.MethodDelete, "/xray/users/", "", "tok"), http.StatusNotFound},
+		{"remove multi-segment", newRequest(http.MethodDelete, "/xray/users/abc/extra", "", "tok"), http.StatusNotFound},
 		{"unknown path", newRequest(http.MethodGet, "/foo", "", "tok"), http.StatusNotFound},
 		{"wrong method", newRequest(http.MethodPut, "/xray/users", "", "tok"), http.StatusMethodNotAllowed},
 	}

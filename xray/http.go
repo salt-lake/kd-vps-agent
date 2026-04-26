@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -20,16 +21,11 @@ import (
 //
 // 鉴权：Authorization: Bearer <SCRIPT_TOKEN>
 type HTTPAPI struct {
-	syncer userOps
+	syncer userManager
 	token  string
 }
 
-type userOps interface {
-	AddUser(uuid string) error
-	RemoveUser(uuid string) error
-}
-
-func NewHTTPAPI(s userOps, token string) *HTTPAPI {
+func NewHTTPAPI(s userManager, token string) *HTTPAPI {
 	return &HTTPAPI{syncer: s, token: token}
 }
 
@@ -40,20 +36,27 @@ func (h *HTTPAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	const prefix = "/xray/users"
-	if !strings.HasPrefix(r.URL.Path, prefix) {
+	path := r.URL.Path
+
+	if r.Method == http.MethodPost && (path == prefix || path == prefix+"/") {
+		h.handleAdd(w, r)
+		return
+	}
+	if r.Method == http.MethodDelete && strings.HasPrefix(path, prefix+"/") {
+		uuid := path[len(prefix)+1:]
+		// uuid 不允许空或含 /，否则 DELETE /xray/users/abc/extra 会被当成 remove("abc/extra")
+		if uuid == "" || strings.Contains(uuid, "/") {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		h.handleRemove(w, uuid)
+		return
+	}
+	if !strings.HasPrefix(path, prefix) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	rest := strings.TrimPrefix(r.URL.Path, prefix)
-
-	switch {
-	case r.Method == http.MethodPost && (rest == "" || rest == "/"):
-		h.handleAdd(w, r)
-	case r.Method == http.MethodDelete && strings.HasPrefix(rest, "/"):
-		h.handleRemove(w, strings.TrimPrefix(rest, "/"))
-	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-	}
+	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 }
 
 // checkAuth 用恒定时间比较防止 token 被定时攻击枚举。
@@ -87,10 +90,6 @@ func (h *HTTPAPI) handleAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTPAPI) handleRemove(w http.ResponseWriter, uuid string) {
-	if uuid == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "uuid required"})
-		return
-	}
 	if err := h.syncer.RemoveUser(uuid); err != nil {
 		log.Printf("http_api: remove uuid=%s err=%v", uuid, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -106,8 +105,8 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 }
 
 // StartHTTPAPI 在 addr 启动 HTTP server，ctx 取消时优雅关闭。
-// addr 为空 / token 为空时不启动，仅记录一行日志。
-func StartHTTPAPI(ctx context.Context, addr, token string, syncer userOps) {
+// addr 为空 / token 为空时不启动；端口冲突等绑定失败会同步 log 一行警告，不阻塞 agent 启动。
+func StartHTTPAPI(ctx context.Context, addr, token string, syncer userManager) {
 	if addr == "" {
 		log.Println("xray http api disabled: HTTP_API_ADDR not set")
 		return
@@ -116,16 +115,20 @@ func StartHTTPAPI(ctx context.Context, addr, token string, syncer userOps) {
 		log.Println("xray http api disabled: SCRIPT_TOKEN not set")
 		return
 	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Printf("xray http api: failed to bind %s: %v (api unavailable)", addr, err)
+		return
+	}
 	srv := &http.Server{
-		Addr:         addr,
 		Handler:      NewHTTPAPI(syncer, token),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
 	}
+	log.Printf("xray http api listening on %s", addr)
 	go func() {
-		log.Printf("xray http api listening on %s", addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("xray http api: %v", err)
 		}
 	}()
