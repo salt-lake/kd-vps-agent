@@ -30,7 +30,7 @@ func newMockManager() *mockManager {
 	}
 }
 
-func (m *mockManager) AddUser(uuid, _ string) error {
+func (m *mockManager) AddUser(uuid string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.added = append(m.added, uuid)
@@ -417,5 +417,5 @@ type orderManager struct {
 	removeFn func(string) error
 }
 
-func (o *orderManager) AddUser(uuid, _ string) error { return o.addFn(uuid) }
+func (o *orderManager) AddUser(uuid string) error    { return o.addFn(uuid) }
 func (o *orderManager) RemoveUser(uuid string) error { return o.removeFn(uuid) }

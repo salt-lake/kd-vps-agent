@@ -10,9 +10,8 @@ import (
 )
 
 // userManager 是 TempUserSync 依赖的最小接口，由 XrayUserSync 满足。
-// tier 参数：临时用户统一传 ""，由 XrayUserSync 内部路由到默认 tier 的 inbound。
 type userManager interface {
-	AddUser(uuid, tier string) error
+	AddUser(uuid string) error
 	RemoveUser(uuid string) error
 }
 
@@ -21,12 +20,6 @@ type TempUserSync struct {
 	apiBase string
 	token   string
 	manager userManager
-
-	// readyCh 非 nil 时，Start 会先等它被关闭（通常是 XrayUserSync.StartupReady()），
-	// 确保父 syncer 已完成首次 fetchUsers，tiers 缓存就绪。避免迁移后的节点上
-	// temp users 被路由到已不存在的老 inbound。
-	readyCh <-chan struct{}
-
 	mu      sync.RWMutex
 	version string
 	uuids   []string
@@ -40,11 +33,6 @@ func NewTempUserSync(apiBase, token string, manager userManager) *TempUserSync {
 	}
 }
 
-// SetReadyChannel 注入一个等待信号。Start() 会先等它关闭再开始 startup。
-func (t *TempUserSync) SetReadyChannel(ch <-chan struct{}) {
-	t.readyCh = ch
-}
-
 // startup 初次拉取并注入全部临时用户。
 func (t *TempUserSync) startup() error {
 	version, uuids, err := fetchTempUsers(t.apiBase, t.token)
@@ -52,7 +40,7 @@ func (t *TempUserSync) startup() error {
 		return err
 	}
 	for _, uuid := range uuids {
-		if err := t.manager.AddUser(uuid, ""); err != nil {
+		if err := t.manager.AddUser(uuid); err != nil {
 			log.Printf("temp_sync: startup add user=%s err=%v", uuid, err)
 		}
 	}
@@ -102,7 +90,7 @@ func (t *TempUserSync) poll() error {
 	}
 
 	for _, uuid := range toAdd {
-		if err := t.manager.AddUser(uuid, ""); err != nil {
+		if err := t.manager.AddUser(uuid); err != nil {
 			log.Printf("temp_sync: poll add user=%s err=%v", uuid, err)
 		}
 	}
@@ -126,7 +114,7 @@ func (t *TempUserSync) ReInjectAll() {
 	uuids := t.uuids
 	t.mu.RUnlock()
 	for _, uuid := range uuids {
-		if err := t.manager.AddUser(uuid, ""); err != nil {
+		if err := t.manager.AddUser(uuid); err != nil {
 			log.Printf("temp_sync: re-inject user=%s err=%v", uuid, err)
 		}
 	}
@@ -144,18 +132,9 @@ func (t *TempUserSync) UUIDSet() map[string]struct{} {
 	return set
 }
 
-// Start 启动后台 goroutine：
-// 1. 若注入了 readyCh，先阻塞等父 syncer 就绪（首次 fetchUsers 完成）
-// 2. 首次 startup（30s 重试），再每 5 分钟 poll
+// Start 启动后台 goroutine：先 startup（30s 重试），再每 5 分钟 poll。
 func (t *TempUserSync) Start(ctx context.Context) {
 	go func() {
-		if t.readyCh != nil {
-			select {
-			case <-t.readyCh:
-			case <-ctx.Done():
-				return
-			}
-		}
 		for {
 			if err := t.startup(); err != nil {
 				log.Printf("temp_sync: startup err=%v, retrying in 30s", err)

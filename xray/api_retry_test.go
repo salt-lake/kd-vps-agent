@@ -190,13 +190,9 @@ func flakyDeltaServer(t *testing.T, failN int, added, removed []string) *httptes
 			conn.Close()
 			return
 		}
-		// 用原始 map 发送老格式（added: []string），让 fetchDelta 的 fallback 路径处理
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code": 200,
-			"data": map[string]any{
-				"added":   added,
-				"removed": removed,
-			},
+		_ = json.NewEncoder(w).Encode(deltaResp{
+			Code: 200,
+			Data: deltaData{Added: added, Removed: removed},
 		})
 	}))
 }
@@ -213,7 +209,7 @@ func TestFetchDelta_RetryOnNetworkError_SucceedsOnSecondAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success after retry, got %v", err)
 	}
-	if len(delta.Added) != 1 || delta.Added[0].UUID != "u1" {
+	if len(delta.Added) != 1 || delta.Added[0] != "u1" {
 		t.Errorf("unexpected delta: %v", delta)
 	}
 }

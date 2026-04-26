@@ -20,14 +20,8 @@ type User struct {
 type XrayAPI interface {
 	IsXrayReady(ctx context.Context) bool
 	AddBatch(ctx context.Context, users []*User) error
-	// AddOrReplace 使用默认 inboundTag（GRPCXrayAPI 构造时传入的）。
 	AddOrReplace(ctx context.Context, user *User) error
-	// AddOrReplaceToTag 显式指定 inboundTag，用于多 inbound 场景。
-	AddOrReplaceToTag(ctx context.Context, inboundTag string, user *User) error
-	// RemoveUserById 使用默认 inboundTag。
 	RemoveUserById(ctx context.Context, id string) error
-	// RemoveUserFromTag 显式指定 inboundTag。
-	RemoveUserFromTag(ctx context.Context, inboundTag, id string) error
 	Close() error
 }
 

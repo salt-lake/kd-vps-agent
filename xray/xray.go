@@ -99,32 +99,22 @@ func (a *GRPCXrayAPI) AddBatch(ctx context.Context, users []*User) error {
 }
 
 func (a *GRPCXrayAPI) AddOrReplace(ctx context.Context, user *User) error {
-	return a.AddOrReplaceToTag(ctx, a.inboundTag, user)
-}
-
-// AddOrReplaceToTag 向指定 inbound 注入用户，若已存在则先删后加。
-func (a *GRPCXrayAPI) AddOrReplaceToTag(ctx context.Context, inboundTag string, user *User) error {
-	if err := a.insertUser(ctx, inboundTag, user); err == nil {
+	if err := a.insertUser(ctx, user); err == nil {
 		return nil
 	} else if !isXrayAlreadyExists(err) {
 		return err
 	}
-	if err := a.RemoveUserFromTag(ctx, inboundTag, user.ID); err != nil {
+	if err := a.RemoveUserById(ctx, user.ID); err != nil {
 		return err
 	}
-	return a.insertUser(ctx, inboundTag, user)
+	return a.insertUser(ctx, user)
 }
 
 func (a *GRPCXrayAPI) RemoveUserById(ctx context.Context, id string) error {
-	return a.RemoveUserFromTag(ctx, a.inboundTag, id)
-}
-
-// RemoveUserFromTag 从指定 inbound 移除用户。
-func (a *GRPCXrayAPI) RemoveUserFromTag(ctx context.Context, inboundTag, id string) error {
 	email := xrayEmail(id)
 	op := &cmd.RemoveUserOperation{Email: email}
 	req := &cmd.AlterInboundRequest{
-		Tag:       inboundTag,
+		Tag:       a.inboundTag,
 		Operation: toTypedMessage(op),
 	}
 	cctx, cancel := context.WithTimeout(ctx, a.timeout)
@@ -132,29 +122,28 @@ func (a *GRPCXrayAPI) RemoveUserFromTag(ctx context.Context, inboundTag, id stri
 	_, err := a.client.AlterInbound(cctx, req)
 	if err != nil && !isXrayNotFound(err) {
 		log.Printf("[XRAY] remove_user failed addr=%s inbound=%s email=%s err=%v",
-			a.addr, inboundTag, email, err)
+			a.addr, a.inboundTag, email, err)
 		return err
 	}
 	return nil
 }
 
-func (a *GRPCXrayAPI) insertUser(ctx context.Context, inboundTag string, user *User) error {
+func (a *GRPCXrayAPI) insertUser(ctx context.Context, user *User) error {
 	prUser, err := buildProtocolUser(user)
 	if err != nil {
 		return err
 	}
 	op := &cmd.AddUserOperation{User: prUser}
 	req := &cmd.AlterInboundRequest{
-		Tag:       inboundTag,
+		Tag:       a.inboundTag,
 		Operation: toTypedMessage(op),
 	}
 	cctx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
 	_, err = a.client.AlterInbound(cctx, req)
-	if err != nil && !isXrayAlreadyExists(err) {
-		// "already exists" 由上层 AddOrReplace 处理（先删后加），不需要 log，避免刷屏
+	if err != nil {
 		log.Printf("[XRAY] add_user failed addr=%s inbound=%s email=%s id=%s uuid=%s err=%v",
-			a.addr, inboundTag, prUser.Email, user.ID, user.UUID, err)
+			a.addr, a.inboundTag, prUser.Email, user.ID, user.UUID, err)
 	}
 	return err
 }

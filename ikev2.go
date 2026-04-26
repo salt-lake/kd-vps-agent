@@ -8,7 +8,6 @@ import (
 	"log"
 	"os/exec"
 
-	"github.com/nats-io/nats.go"
 	"github.com/salt-lake/kd-vps-agent/collect"
 	"github.com/salt-lake/kd-vps-agent/command"
 	"github.com/salt-lake/kd-vps-agent/update"
@@ -20,7 +19,7 @@ var versionFile string
 const assetName = "node-agent-ikev2"
 const buildSuffix = "-ikev2"
 
-func setupXray(_ context.Context, _ Config, _ *command.Dispatcher, _ *nats.Conn) {}
+func setupXray(_ context.Context, _ Config, _ *command.Dispatcher) {}
 
 func buildProviders(cfg Config) []collect.MetricProvider {
 	return []collect.MetricProvider{

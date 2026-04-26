@@ -10,16 +10,14 @@ import (
 
 // mockSyncer 实现 XrayUserManager 接口，用于测试。
 type mockSyncer struct {
-	addErr       error
-	removeErr    error
-	addCalled    string
-	addTier      string
+	addErr      error
+	removeErr   error
+	addCalled   string
 	removeCalled string
 }
 
-func (m *mockSyncer) AddUser(uuid, tier string) error {
+func (m *mockSyncer) AddUser(uuid string) error {
 	m.addCalled = uuid
-	m.addTier = tier
 	return m.addErr
 }
 

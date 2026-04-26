@@ -76,7 +76,7 @@ func main() {
 	dispatcher.Register(command.SelfUpdateHandler{CurrentVersion: Version, AssetName: assetName})
 	dispatcher.Register(command.UpdateConfigHandler{})
 
-	setupXray(ctx, cfg, dispatcher, nc)
+	setupXray(ctx, cfg, dispatcher)
 
 	collector := collect.NewCollector(buildProviders(cfg)...)
 

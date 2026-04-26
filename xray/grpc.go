@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
 )
 
 // getAPI 获取或创建 xray gRPC API 客户端（长连接复用）。
@@ -26,9 +27,7 @@ func (s *XrayUserSync) getAPI() (XrayAPI, error) {
 	return s.xrayAPI, nil
 }
 
-// injectUsers 按 tier 分组注入用户到对应 inbound。
-// 兼容模式（s.tiers 为空）下全部注入到 s.inboundTag。
-// 初始化完成后覆盖 current（uuid → tier）。
+// injectUsers 批量将用户注入 Xray 内存并初始化 current 状态。
 func (s *XrayUserSync) injectUsers(users []userDTO) error {
 	api, err := s.getAPI()
 	if err != nil {
@@ -46,34 +45,31 @@ func (s *XrayUserSync) injectUsers(users []userDTO) error {
 		if u.UUID == defaultUUID {
 			continue
 		}
-		inbound := s.inboundTagForTier(u.Tier)
-		if err := api.AddOrReplaceToTag(ctx, inbound, &User{ID: u.UUID, UUID: u.UUID, Flow: flowVision}); err != nil {
-			return fmt.Errorf("inject user %s tier=%s to %s: %w", u.UUID, u.Tier, inbound, err)
+		if err := api.AddOrReplace(ctx, &User{ID: u.UUID, UUID: u.UUID, Flow: "xtls-rprx-vision"}); err != nil {
+			return fmt.Errorf("inject user %s failed: %w", u.UUID, err)
 		}
 	}
 
 	s.mu.Lock()
-	s.current = make(map[string]string, len(users))
+	s.current = make(map[string]struct{}, len(users))
 	for _, u := range users {
-		s.current[u.UUID] = u.Tier
+		s.current[u.UUID] = struct{}{}
 	}
 	s.mu.Unlock()
 	return nil
 }
 
-// AddUser 按 tier 注入用户到对应 inbound。兼容模式下 tier 传 ""。
-func (s *XrayUserSync) AddUser(uuid, tier string) error {
+// AddUser 通过 xray gRPC API 动态添加用户。
+func (s *XrayUserSync) AddUser(uuid string) error {
 	api, err := s.getAPI()
 	if err != nil {
 		return fmt.Errorf("get api: %w", err)
 	}
 
-	inbound := s.inboundTagForTier(tier)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := api.AddOrReplaceToTag(ctx, inbound, &User{ID: uuid, UUID: uuid, Flow: flowVision}); err != nil {
+	if err := api.AddOrReplace(ctx, &User{ID: uuid, UUID: uuid, Flow: "xtls-rprx-vision"}); err != nil {
 		if strings.Contains(err.Error(), "connection") || strings.Contains(err.Error(), "unavailable") {
 			s.mu.Lock()
 			if s.xrayAPI == api {
@@ -82,31 +78,25 @@ func (s *XrayUserSync) AddUser(uuid, tier string) error {
 			}
 			s.mu.Unlock()
 		}
-		return fmt.Errorf("AddUser uuid=%s tier=%s: %w", uuid, tier, err)
+		return fmt.Errorf("AddUser uuid=%s: %w", uuid, err)
 	}
 	s.mu.Lock()
-	s.current[uuid] = tier
+	s.current[uuid] = struct{}{}
 	s.mu.Unlock()
 	return nil
 }
 
-// RemoveUser 按 current 记录的 tier 定位 inbound 移除用户。
-// 找不到记录时走兼容路径（s.inboundTag）。
+// RemoveUser 通过 xray gRPC API 动态移除用户。
 func (s *XrayUserSync) RemoveUser(uuid string) error {
 	api, err := s.getAPI()
 	if err != nil {
 		return fmt.Errorf("get api: %w", err)
 	}
 
-	s.mu.Lock()
-	tier := s.current[uuid]
-	inbound := s.inboundTagForTierLocked(tier)
-	s.mu.Unlock()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := api.RemoveUserFromTag(ctx, inbound, uuid); err != nil {
+	if err := api.RemoveUserById(ctx, uuid); err != nil {
 		if strings.Contains(err.Error(), "connection") || strings.Contains(err.Error(), "unavailable") {
 			s.mu.Lock()
 			if s.xrayAPI == api {
@@ -115,7 +105,7 @@ func (s *XrayUserSync) RemoveUser(uuid string) error {
 			}
 			s.mu.Unlock()
 		}
-		return fmt.Errorf("RemoveUser uuid=%s tier=%s: %w", uuid, tier, err)
+		return fmt.Errorf("RemoveUser uuid=%s: %w", uuid, err)
 	}
 	s.mu.Lock()
 	delete(s.current, uuid)

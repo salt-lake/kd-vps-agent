@@ -10,22 +10,20 @@ import (
 )
 
 type Config struct {
-	NATSUrl          string
-	NATSToken        string
-	Host             string
-	NodeID           string
-	APIBase          string
-	ScriptToken      string
-	Protocol         string
-	SwanContainer    string
-	SwanImage        string
-	XrayAPIAddr      string
-	XrayInboundTag   string
-	XrayConfigPath   string
-	Iface            string
-	ReportInterval   time.Duration
-	RatelimitIface   string
-	RatelimitEnabled bool
+	NATSUrl        string
+	NATSToken      string
+	Host           string
+	NodeID         string
+	APIBase        string
+	ScriptToken    string
+	Protocol       string
+	SwanContainer  string
+	SwanImage      string
+	XrayAPIAddr    string
+	XrayInboundTag string
+	XrayConfigPath string
+	Iface          string
+	ReportInterval time.Duration
 }
 
 func LoadConfig() Config {
@@ -43,10 +41,8 @@ func LoadConfig() Config {
 		XrayAPIAddr:    envOr("XRAY_API_ADDR", "127.0.0.1:10085"),
 		XrayInboundTag: envOr("XRAY_INBOUND_TAG", "proxy"),
 		XrayConfigPath: envOr("XRAY_CONFIG_PATH", "/etc/xray/config.json"),
-		Iface:            collect.DetectPrimaryIface(),
-		ReportInterval:   parseDuration(envOr("REPORT_INTERVAL", "2m")),
-		RatelimitIface:   os.Getenv("RATELIMIT_IFACE"),                              // 空则自动探测
-		RatelimitEnabled: strings.ToLower(os.Getenv("RATELIMIT_ENABLED")) != "false", // 默认 true
+		Iface:          collect.DetectPrimaryIface(),
+		ReportInterval: parseDuration(envOr("REPORT_INTERVAL", "2m")),
 	}
 }
 
