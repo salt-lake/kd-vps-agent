@@ -41,6 +41,7 @@ kd-vps-agent/
     ├── xray_sync.go  # XrayUserSync 结构体及构造函数
     ├── grpc.go       # 用户增删的 gRPC 操作
     ├── api.go        # 后端 HTTP API 拉取用户列表
+    ├── http.go       # 业务方调用的入站 HTTP API（POST/DELETE /xray/users）
     ├── config.go     # xray 配置文件读写（clients 列表）
     ├── schedule.go   # 定时同步、启动同步、增量同步
     ├── state.go      # 同步状态持久化（/var/lib/node-agent/sync_state.json）
@@ -90,7 +91,22 @@ type Handler interface {
 | `XRAY_CONFIG_PATH` | `/etc/xray/config.json` | Xray 配置文件路径 |
 | `REPORT_INTERVAL` | `2m` | 上报间隔（Go duration 格式） |
 | `API_BASE` | — | 后端 API 基地址（xray 用户同步需要） |
-| `SCRIPT_TOKEN` | 同 `NATS_AUTH_TOKEN` | 访问后端 API 的 Bearer token |
+| `SCRIPT_TOKEN` | 同 `NATS_AUTH_TOKEN` | 访问后端 API 的 Bearer token；同时也是入站 HTTP API 的 Bearer |
+| `HTTP_API_ADDR` | `:8080` | xray 用户增删 HTTP API 监听地址；空字符串禁用 |
+
+---
+
+## HTTP API（仅 xray 构建）
+
+业务方可直接调用节点的入站 HTTP API 增删 xray 用户，绕过 NATS 链路。
+
+- 监听：`HTTP_API_ADDR`（默认 `:8080` = `0.0.0.0:8080`）
+- 鉴权：`Authorization: Bearer <SCRIPT_TOKEN>`
+- 接口：
+  - `POST /xray/users` body `{"uuid":"<uuid>"}` → 添加用户
+  - `DELETE /xray/users/<uuid>` → 删除用户
+- 响应：`200 {"ok":true}` / `4xx {"error":"..."}` / `5xx {"error":"..."}`
+- 实现复用 `XrayUserSync.AddUser` / `RemoveUser`，与 NATS 指令同语义。
 
 ---
 

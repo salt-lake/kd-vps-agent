@@ -22,6 +22,7 @@ type Config struct {
 	XrayAPIAddr    string
 	XrayInboundTag string
 	XrayConfigPath string
+	HTTPAPIAddr    string
 	Iface          string
 	ReportInterval time.Duration
 }
@@ -41,6 +42,7 @@ func LoadConfig() Config {
 		XrayAPIAddr:    envOr("XRAY_API_ADDR", "127.0.0.1:10085"),
 		XrayInboundTag: envOr("XRAY_INBOUND_TAG", "proxy"),
 		XrayConfigPath: envOr("XRAY_CONFIG_PATH", "/etc/xray/config.json"),
+		HTTPAPIAddr:    envOr("HTTP_API_ADDR", ":8080"),
 		Iface:          collect.DetectPrimaryIface(),
 		ReportInterval: parseDuration(envOr("REPORT_INTERVAL", "2m")),
 	}

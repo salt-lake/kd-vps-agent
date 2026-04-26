@@ -99,15 +99,10 @@ func (a *GRPCXrayAPI) AddBatch(ctx context.Context, users []*User) error {
 }
 
 func (a *GRPCXrayAPI) AddOrReplace(ctx context.Context, user *User) error {
-	if err := a.insertUser(ctx, user); err == nil {
-		return nil
-	} else if !isXrayAlreadyExists(err) {
+	if err := a.insertUser(ctx, user); err != nil && !isXrayAlreadyExists(err) {
 		return err
 	}
-	if err := a.RemoveUserById(ctx, user.ID); err != nil {
-		return err
-	}
-	return a.insertUser(ctx, user)
+	return nil
 }
 
 func (a *GRPCXrayAPI) RemoveUserById(ctx context.Context, id string) error {
@@ -141,7 +136,7 @@ func (a *GRPCXrayAPI) insertUser(ctx context.Context, user *User) error {
 	cctx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
 	_, err = a.client.AlterInbound(cctx, req)
-	if err != nil {
+	if err != nil && !isXrayAlreadyExists(err) {
 		log.Printf("[XRAY] add_user failed addr=%s inbound=%s email=%s id=%s uuid=%s err=%v",
 			a.addr, a.inboundTag, prUser.Email, user.ID, user.UUID, err)
 	}
