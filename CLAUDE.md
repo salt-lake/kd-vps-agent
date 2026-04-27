@@ -7,7 +7,7 @@ node-agent 是部署在 VPS 节点上的独立 Go 二进制，负责：
 1. **指标采集上报**：定期采集系统指标（CPU/内存/磁盘/流量/连接数），通过 NATS 上报给后端
 2. **指令订阅执行**：监听 NATS 下发的运维指令（如 docker restart）
 3. **自更新**：每天北京时间 02:00（含随机 jitter）检查 GitHub Releases 最新版本，若不同则下载替换二进制并 `systemctl restart node-agent`
-4. **每日任务**：ikev2 节点北京时间 04:00 清空 charon.log；xray 节点 03:00 全量同步用户
+4. **每日任务**：ikev2 节点北京时间 04:00 清空 charon.log（xray 用户同步走 30 分钟一次的 DeltaSync，无每日任务）
 
 ---
 
@@ -42,8 +42,7 @@ kd-vps-agent/
     ├── grpc.go       # 用户增删的 gRPC 操作
     ├── api.go        # 后端 HTTP API 拉取用户列表
     ├── http.go       # 业务方调用的入站 HTTP API（POST/DELETE /xray/users）
-    ├── config.go     # xray 配置文件读写（clients 列表）
-    ├── schedule.go   # 定时同步、启动同步、增量同步
+    ├── schedule.go   # 30 分钟一次的增量同步 + xray 健康监测
     ├── state.go      # 同步状态持久化（/var/lib/node-agent/sync_state.json）
     └── proto/        # protobuf 生成代码
 ```

@@ -12,12 +12,18 @@ const (
 	defaultUUID = "a1b2c3d4-0000-0000-0000-000000000001" // 固定测试用户，永不被同步逻辑删除
 
 	// 同步策略
-	deltaSyncInterval   = 5 * time.Minute
+	deltaSyncInterval   = 30 * time.Minute
 	tempSyncInterval    = 5 * time.Minute
 	healthCheckInterval = 30 * time.Second
 )
 
-// XrayUserSync 管理 xray 用户的全量同步和实时增量操作。
+// syncAfterRestart 循环参数（var 而非 const，便于测试覆盖时缩短）。
+var (
+	syncRestartRetryInterval = 5 * time.Second
+	syncRestartRefreshEvery  = 10
+)
+
+// XrayUserSync 管理 xray 用户的实时增量操作。
 type XrayUserSync struct {
 	apiBase    string
 	token      string
@@ -25,7 +31,6 @@ type XrayUserSync struct {
 	inboundTag string
 	configPath string
 	mu                  sync.Mutex
-	current             map[string]struct{}
 	xrayAPI             XrayAPI
 	tempSync            *TempUserSync
 	restartSyncInFlight int32 // atomic: 1 if syncAfterRestart goroutine is running
@@ -43,7 +48,6 @@ func NewXrayUserSync(apiBase, token, apiAddr, inboundTag, configPath string) *Xr
 		apiAddr:    apiAddr,
 		inboundTag: inboundTag,
 		configPath: configPath,
-		current:    make(map[string]struct{}),
 	}
 }
 

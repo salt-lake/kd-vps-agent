@@ -5,6 +5,7 @@ package xray
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 )
 
 var syncStateFile = "/var/lib/node-agent/sync_state.json"
@@ -26,7 +27,7 @@ func loadSyncState() (syncState, error) {
 }
 
 func saveSyncState(s syncState) error {
-	if err := os.MkdirAll("/var/lib/node-agent", 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(syncStateFile), 0755); err != nil {
 		return err
 	}
 	data, err := json.Marshal(s)

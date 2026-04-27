@@ -27,7 +27,7 @@ func (s *XrayUserSync) getAPI() (XrayAPI, error) {
 	return s.xrayAPI, nil
 }
 
-// injectUsers 批量将用户注入 Xray 内存并初始化 current 状态。
+// injectUsers 批量将用户注入 Xray 内存。
 func (s *XrayUserSync) injectUsers(users []userDTO) error {
 	api, err := s.getAPI()
 	if err != nil {
@@ -49,13 +49,6 @@ func (s *XrayUserSync) injectUsers(users []userDTO) error {
 			return fmt.Errorf("inject user %s failed: %w", u.UUID, err)
 		}
 	}
-
-	s.mu.Lock()
-	s.current = make(map[string]struct{}, len(users))
-	for _, u := range users {
-		s.current[u.UUID] = struct{}{}
-	}
-	s.mu.Unlock()
 	return nil
 }
 
@@ -80,9 +73,6 @@ func (s *XrayUserSync) AddUser(uuid string) error {
 		}
 		return fmt.Errorf("AddUser uuid=%s: %w", uuid, err)
 	}
-	s.mu.Lock()
-	s.current[uuid] = struct{}{}
-	s.mu.Unlock()
 	return nil
 }
 
@@ -107,8 +97,5 @@ func (s *XrayUserSync) RemoveUser(uuid string) error {
 		}
 		return fmt.Errorf("RemoveUser uuid=%s: %w", uuid, err)
 	}
-	s.mu.Lock()
-	delete(s.current, uuid)
-	s.mu.Unlock()
 	return nil
 }

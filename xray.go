@@ -36,13 +36,6 @@ func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher) {
 	d.Register(command.NewXrayUserAddHandler(syncer))
 	d.Register(command.NewXrayUserRemoveHandler(syncer))
 	d.Register(command.NewXrayUpdateHandler(ctx, syncer, cfg.XrayConfigPath))
-	d.Register(command.NewXrayFullSyncHandler(syncer))
-	go dailyScheduler(ctx, 3, hostJitter(cfg.Host), func() {
-		log.Println("daily full sync: start")
-		if err := syncer.FullSync(); err != nil {
-			log.Printf("xray full sync: %v", err)
-		}
-	})
 }
 
 func buildProviders(cfg Config) []collect.MetricProvider {

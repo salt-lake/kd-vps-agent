@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync"
 	"testing"
+	"time"
 )
 
 // ---- mockXrayAPI ----
@@ -19,6 +20,8 @@ import (
 type mockXrayAPI struct {
 	mu          sync.Mutex
 	ready       bool
+	readyAfter  int // 若 >0，前 readyAfter 次 IsXrayReady 返回 false
+	probes      int // IsXrayReady 调用次数
 	added       []string // UUIDs passed to AddOrReplace
 	removed     []string // IDs passed to RemoveUserById
 	addErr      error
@@ -26,7 +29,15 @@ type mockXrayAPI struct {
 	closeCalled bool
 }
 
-func (m *mockXrayAPI) IsXrayReady(_ context.Context) bool { return m.ready }
+func (m *mockXrayAPI) IsXrayReady(_ context.Context) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.probes++
+	if m.readyAfter > 0 {
+		return m.probes > m.readyAfter
+	}
+	return m.ready
+}
 
 func (m *mockXrayAPI) AddOrReplace(_ context.Context, u *User) error {
 	m.mu.Lock()
@@ -76,13 +87,9 @@ func (m *mockXrayAPI) allRemoved() []string {
 
 // ---- helpers ----
 
-// newSync 构造一个预注入 mock API 的 XrayUserSync，current 由调用方指定。
-func newSync(api XrayAPI, apiBase string, current ...string) *XrayUserSync {
+func newSync(api XrayAPI, apiBase string) *XrayUserSync {
 	s := NewXrayUserSync(apiBase, "token", "127.0.0.1:10085", "vless", "")
 	s.xrayAPI = api
-	for _, u := range current {
-		s.current[u] = struct{}{}
-	}
 	return s
 }
 
@@ -124,101 +131,6 @@ func sorted(ss []string) []string {
 	out := append([]string(nil), ss...)
 	sort.Strings(out)
 	return out
-}
-
-// ---- diffUsers ----
-
-func TestDiffUsers_EmptyCurrentAndRemote(t *testing.T) {
-	s := newSync(nil, "")
-	toAdd, toRemove := s.diffUsers(map[string]struct{}{}, nil)
-	if len(toAdd) != 0 || len(toRemove) != 0 {
-		t.Errorf("expected empty diff, got add=%v remove=%v", toAdd, toRemove)
-	}
-}
-
-func TestDiffUsers_NewUsersInRemote(t *testing.T) {
-	s := newSync(nil, "")
-	remote := map[string]struct{}{"u1": {}, "u2": {}}
-	toAdd, toRemove := s.diffUsers(remote, nil)
-	if len(toRemove) != 0 {
-		t.Errorf("expected no removes, got %v", toRemove)
-	}
-	if len(sorted(toAdd)) != 2 {
-		t.Errorf("expected 2 adds, got %v", toAdd)
-	}
-}
-
-func TestDiffUsers_GoneUsersInCurrent(t *testing.T) {
-	s := newSync(nil, "", "old1", "old2")
-	remote := map[string]struct{}{}
-	toAdd, toRemove := s.diffUsers(remote, nil)
-	if len(toAdd) != 0 {
-		t.Errorf("expected no adds, got %v", toAdd)
-	}
-	if len(toRemove) != 2 {
-		t.Errorf("expected 2 removes, got %v", toRemove)
-	}
-}
-
-func TestDiffUsers_UserInBothNoChange(t *testing.T) {
-	s := newSync(nil, "", "common")
-	remote := map[string]struct{}{"common": {}}
-	toAdd, toRemove := s.diffUsers(remote, nil)
-	if len(toAdd) != 0 || len(toRemove) != 0 {
-		t.Errorf("expected empty diff, got add=%v remove=%v", toAdd, toRemove)
-	}
-}
-
-func TestDiffUsers_DefaultUUIDNeverRemoved(t *testing.T) {
-	s := newSync(nil, "", defaultUUID, "regular")
-	remote := map[string]struct{}{} // 两者都不在 remote
-	_, toRemove := s.diffUsers(remote, nil)
-	for _, id := range toRemove {
-		if id == defaultUUID {
-			t.Errorf("defaultUUID should never appear in toRemove")
-		}
-	}
-}
-
-func TestDiffUsers_TempUsersExcludedFromRemove(t *testing.T) {
-	s := newSync(nil, "", "temp-u1", "regular-u1")
-	remote := map[string]struct{}{} // 两者都消失
-	exclude := map[string]struct{}{"temp-u1": {}}
-	_, toRemove := s.diffUsers(remote, exclude)
-	for _, id := range toRemove {
-		if id == "temp-u1" {
-			t.Errorf("temp user should be excluded from toRemove")
-		}
-	}
-	if len(toRemove) != 1 || toRemove[0] != "regular-u1" {
-		t.Errorf("expected [regular-u1] in toRemove, got %v", toRemove)
-	}
-}
-
-// ---- tempUserSet ----
-
-func TestTempUserSet_NilTempSync(t *testing.T) {
-	s := newSync(nil, "")
-	if s.tempUserSet() != nil {
-		t.Error("expected nil when no tempSync")
-	}
-}
-
-func TestTempUserSet_DelegatesUUIDSet(t *testing.T) {
-	srv := tempServer("v1", []string{"t1", "t2"})
-	defer srv.Close()
-
-	m := newMockManager()
-	ts := NewTempUserSync(srv.URL, "token", m)
-	_ = ts.startup() // 填充缓存
-
-	s := newSync(nil, "")
-	s.SetTempSync(ts)
-
-	set := s.tempUserSet()
-	if len(set) != 2 {
-		t.Errorf("expected 2 temp UUIDs, got %d", len(set))
-	}
 }
 
 // ---- fetchUsers ----
@@ -352,141 +264,6 @@ func TestFetchDelta_NetworkError(t *testing.T) {
 	}
 }
 
-// ---- writeConfig ----
-
-// minimalConfig 生成含一个 vless inbound 的最小 xray 配置文件。
-func minimalConfig(tag string, existingClients []map[string]string) []byte {
-	clientsJSON, _ := json.Marshal(existingClients)
-	config := map[string]interface{}{
-		"inbounds": []map[string]interface{}{
-			{
-				"tag": tag,
-				"settings": map[string]json.RawMessage{
-					"clients": clientsJSON,
-				},
-			},
-		},
-	}
-	data, _ := json.Marshal(config)
-	return data
-}
-
-func TestWriteConfig_UpdatesClients(t *testing.T) {
-	f, err := os.CreateTemp("", "xray_config*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	_, _ = f.Write(minimalConfig("vless", nil))
-	f.Close()
-
-	s := NewXrayUserSync("", "", "", "vless", f.Name())
-	users := []userDTO{{UUID: "aaaa0000-0000-0000-0000-000000000001"}}
-	if err := s.writeConfig(users); err != nil {
-		t.Fatalf("writeConfig err: %v", err)
-	}
-
-	// 读回，验证 clients 被写入
-	data, _ := os.ReadFile(f.Name())
-	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
-	var inbounds []map[string]json.RawMessage
-	_ = json.Unmarshal(raw["inbounds"], &inbounds)
-
-	var settings map[string]json.RawMessage
-	_ = json.Unmarshal(inbounds[0]["settings"], &settings)
-	var clients []map[string]string
-	_ = json.Unmarshal(settings["clients"], &clients)
-
-	// 应包含 defaultUUID + 传入的 user
-	ids := make(map[string]bool)
-	for _, c := range clients {
-		ids[c["id"]] = true
-	}
-	if !ids[defaultUUID] {
-		t.Error("defaultUUID should always be in clients")
-	}
-	if !ids["aaaa0000-0000-0000-0000-000000000001"] {
-		t.Error("user UUID should be in clients")
-	}
-}
-
-func TestWriteConfig_DefaultUUIDNotDuplicated(t *testing.T) {
-	f, err := os.CreateTemp("", "xray_config*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	_, _ = f.Write(minimalConfig("vless", nil))
-	f.Close()
-
-	s := NewXrayUserSync("", "", "", "vless", f.Name())
-	// 传入包含 defaultUUID 的用户列表
-	users := []userDTO{{UUID: defaultUUID}}
-	if err := s.writeConfig(users); err != nil {
-		t.Fatalf("writeConfig err: %v", err)
-	}
-
-	data, _ := os.ReadFile(f.Name())
-	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
-	var inbounds []map[string]json.RawMessage
-	_ = json.Unmarshal(raw["inbounds"], &inbounds)
-	var settings map[string]json.RawMessage
-	_ = json.Unmarshal(inbounds[0]["settings"], &settings)
-	var clients []map[string]string
-	_ = json.Unmarshal(settings["clients"], &clients)
-
-	count := 0
-	for _, c := range clients {
-		if c["id"] == defaultUUID {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Errorf("defaultUUID appears %d times, want exactly 1", count)
-	}
-}
-
-func TestWriteConfig_PreservesOtherInbounds(t *testing.T) {
-	config := map[string]interface{}{
-		"inbounds": []map[string]interface{}{
-			{"tag": "other-inbound"},
-			{"tag": "vless", "settings": map[string]interface{}{"clients": []interface{}{}}},
-		},
-	}
-	data, _ := json.Marshal(config)
-
-	f, err := os.CreateTemp("", "xray_config*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	_, _ = f.Write(data)
-	f.Close()
-
-	s := NewXrayUserSync("", "", "", "vless", f.Name())
-	if err := s.writeConfig(nil); err != nil {
-		t.Fatalf("writeConfig err: %v", err)
-	}
-
-	out, _ := os.ReadFile(f.Name())
-	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(out, &raw)
-	var inbounds []map[string]json.RawMessage
-	_ = json.Unmarshal(raw["inbounds"], &inbounds)
-	if len(inbounds) != 2 {
-		t.Errorf("expected 2 inbounds preserved, got %d", len(inbounds))
-	}
-}
-
-func TestWriteConfig_MissingFile(t *testing.T) {
-	s := NewXrayUserSync("", "", "", "vless", "/nonexistent/config.json")
-	if err := s.writeConfig(nil); err == nil {
-		t.Fatal("expected error for missing config file")
-	}
-}
-
 // ---- Close ----
 
 func TestClose_NilAPI(t *testing.T) {
@@ -518,14 +295,8 @@ func TestAddUser_Success(t *testing.T) {
 	if err := s.AddUser("aaaa0000-0000-0000-0000-000000000002"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(mock.allAdded()) != 1 {
-		t.Errorf("expected 1 add, got %d", len(mock.allAdded()))
-	}
-	s.mu.Lock()
-	_, inCurrent := s.current["aaaa0000-0000-0000-0000-000000000002"]
-	s.mu.Unlock()
-	if !inCurrent {
-		t.Error("expected UUID to be in current after AddUser")
+	if got := mock.allAdded(); len(got) != 1 || got[0] != "aaaa0000-0000-0000-0000-000000000002" {
+		t.Errorf("added = %v, want [aaaa...0002]", got)
 	}
 }
 
@@ -560,24 +331,18 @@ func TestAddUser_NonConnectionError_KeepsAPI(t *testing.T) {
 
 func TestRemoveUser_Success(t *testing.T) {
 	mock := &mockXrayAPI{}
-	s := newSync(mock, "", "aaaa0000-0000-0000-0000-000000000003")
+	s := newSync(mock, "")
 	if err := s.RemoveUser("aaaa0000-0000-0000-0000-000000000003"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(mock.allRemoved()) != 1 {
-		t.Errorf("expected 1 remove, got %d", len(mock.allRemoved()))
-	}
-	s.mu.Lock()
-	_, inCurrent := s.current["aaaa0000-0000-0000-0000-000000000003"]
-	s.mu.Unlock()
-	if inCurrent {
-		t.Error("expected UUID to be removed from current after RemoveUser")
+	if got := mock.allRemoved(); len(got) != 1 || got[0] != "aaaa0000-0000-0000-0000-000000000003" {
+		t.Errorf("removed = %v, want [aaaa...0003]", got)
 	}
 }
 
 func TestRemoveUser_ConnectionError_ResetsAPI(t *testing.T) {
 	mock := &mockXrayAPI{removeErr: fmt.Errorf("transport: connection is unavailable")}
-	s := newSync(mock, "", "aaaa0000-0000-0000-0000-000000000003")
+	s := newSync(mock, "")
 	_ = s.RemoveUser("aaaa0000-0000-0000-0000-000000000003")
 	s.mu.Lock()
 	api := s.xrayAPI
@@ -587,153 +352,34 @@ func TestRemoveUser_ConnectionError_ResetsAPI(t *testing.T) {
 	}
 }
 
-// ---- HourlySync ----
-
-func TestHourlySync_AddsNewUsers(t *testing.T) {
-	srv := usersServer([]string{"u-new"})
-	defer srv.Close()
-	origClient := httpClient
-	httpClient = srv.Client()
-	defer func() { httpClient = origClient }()
-
-	mock := &mockXrayAPI{}
-	s := newSync(mock, srv.URL) // current 为空
-	if err := s.HourlySync(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(mock.allAdded()) != 1 || mock.allAdded()[0] != "u-new" {
-		t.Errorf("expected [u-new] added, got %v", mock.allAdded())
-	}
-}
-
-func TestHourlySync_RemovesGoneUsers(t *testing.T) {
-	srv := usersServer([]string{}) // 没有用户了
-	defer srv.Close()
-	origClient := httpClient
-	httpClient = srv.Client()
-	defer func() { httpClient = origClient }()
-
-	mock := &mockXrayAPI{}
-	s := newSync(mock, srv.URL, "u-gone")
-	if err := s.HourlySync(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(mock.allRemoved()) != 1 || mock.allRemoved()[0] != "u-gone" {
-		t.Errorf("expected [u-gone] removed, got %v", mock.allRemoved())
-	}
-}
-
-func TestHourlySync_TempUsersNotRemoved(t *testing.T) {
-	srv := usersServer([]string{}) // remote 为空
-	defer srv.Close()
-	origClient := httpClient
-	httpClient = srv.Client()
-	defer func() { httpClient = origClient }()
-
-	// 建一个 tempSync，缓存 temp-u1
-	tsSrv := tempServer("v1", []string{"temp-u1"})
-	defer tsSrv.Close()
-	ts := NewTempUserSync(tsSrv.URL, "tok", newMockManager())
-	_ = ts.startup()
-
-	mock := &mockXrayAPI{}
-	s := newSync(mock, srv.URL, "temp-u1", "regular-gone")
-	s.SetTempSync(ts)
-
-	if err := s.HourlySync(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, id := range mock.allRemoved() {
-		if id == "temp-u1" {
-			t.Error("temp user should not be removed by HourlySync")
-		}
-	}
-	if len(mock.allRemoved()) != 1 || mock.allRemoved()[0] != "regular-gone" {
-		t.Errorf("expected [regular-gone] removed, got %v", mock.allRemoved())
-	}
-}
-
-func TestHourlySync_FetchError(t *testing.T) {
-	s := newSync(&mockXrayAPI{}, "http://127.0.0.1:1")
-	if err := s.HourlySync(); err == nil {
-		t.Fatal("expected error when fetch fails")
-	}
-}
-
-func TestHourlySync_ContinuesOnIndividualError(t *testing.T) {
-	srv := usersServer([]string{"u1", "u2"})
-	defer srv.Close()
-	origClient := httpClient
-	httpClient = srv.Client()
-	defer func() { httpClient = origClient }()
-
-	// AddUser 对任意 UUID 返回错误，HourlySync 应继续而不返回 error
-	mock := &mockXrayAPI{addErr: fmt.Errorf("some error")}
-	s := newSync(mock, srv.URL)
-	if err := s.HourlySync(); err != nil {
-		t.Errorf("HourlySync should swallow individual errors, got %v", err)
-	}
-}
-
-// ---- FullSync ----
-
-func TestFullSync_AddsAndRemoves(t *testing.T) {
-	srv := usersServer([]string{"u-new"})
-	defer srv.Close()
-	origClient := httpClient
-	httpClient = srv.Client()
-	defer func() { httpClient = origClient }()
-
-	mock := &mockXrayAPI{}
-	s := newSync(mock, srv.URL, "u-old")
-	if err := s.FullSync(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(mock.allAdded()) != 1 || mock.allAdded()[0] != "u-new" {
-		t.Errorf("added = %v, want [u-new]", mock.allAdded())
-	}
-	if len(mock.allRemoved()) != 1 || mock.allRemoved()[0] != "u-old" {
-		t.Errorf("removed = %v, want [u-old]", mock.allRemoved())
-	}
-}
-
-func TestFullSync_ContinuesOnIndividualError(t *testing.T) {
-	srv := usersServer([]string{"u1", "u2"})
-	defer srv.Close()
-	origClient := httpClient
-	httpClient = srv.Client()
-	defer func() { httpClient = origClient }()
-
-	mock := &mockXrayAPI{addErr: fmt.Errorf("inject failed")}
-	s := newSync(mock, srv.URL)
-	// FullSync 对单个错误只 log，不返回
-	if err := s.FullSync(); err != nil {
-		t.Errorf("FullSync should swallow individual errors, got %v", err)
-	}
-}
-
 // ---- DeltaSync ----
 
-func TestDeltaSync_NoStateFile_FallsBackToHourlySync(t *testing.T) {
-	srv := usersServer([]string{"u-remote"})
-	defer srv.Close()
-	origClient := httpClient
-	httpClient = srv.Client()
-	defer func() { httpClient = origClient }()
+func TestDeltaSync_NoStateFile_InitializesCursor(t *testing.T) {
+	statePath := t.TempDir() + "/sync_state.json"
 
-	// 指向不存在的 state 文件
 	origStateFile := syncStateFile
-	syncStateFile = "/nonexistent/sync_state.json"
+	syncStateFile = statePath
 	defer func() { syncStateFile = origStateFile }()
 
 	mock := &mockXrayAPI{}
-	s := newSync(mock, srv.URL)
+	s := newSync(mock, "http://127.0.0.1:1")
+
+	before := time.Now().Unix()
 	if err := s.DeltaSync(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// 因为 loadSyncState 失败，降级为 HourlySync，应调用 AddUser
-	if len(mock.allAdded()) != 1 {
-		t.Errorf("expected HourlySync fallback to add u-remote, got %v", mock.allAdded())
+	after := time.Now().Unix()
+
+	if len(mock.allAdded()) != 0 || len(mock.allRemoved()) != 0 {
+		t.Errorf("expected no user ops on first run, got add=%v remove=%v", mock.allAdded(), mock.allRemoved())
+	}
+
+	state, err := loadSyncState()
+	if err != nil {
+		t.Fatalf("expected state file to be created, got %v", err)
+	}
+	if state.LastSyncTime < before-1 || state.LastSyncTime > after {
+		t.Errorf("LastSyncTime = %d, want in [%d, %d]", state.LastSyncTime, before-1, after)
 	}
 }
 
@@ -752,7 +398,7 @@ func TestDeltaSync_WithStateFile_AppliesDelta(t *testing.T) {
 	defer func() { httpClient = origClient }()
 
 	mock := &mockXrayAPI{}
-	s := newSync(mock, srv.URL, "rem-u")
+	s := newSync(mock, srv.URL)
 	if err := s.DeltaSync(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -794,8 +440,183 @@ func TestDeltaSync_AddError_ReturnsError(t *testing.T) {
 
 	mock := &mockXrayAPI{addErr: fmt.Errorf("inject failed")}
 	s := newSync(mock, srv.URL)
-	// DeltaSync 对 AddUser 错误会直接返回（与 HourlySync 不同）
 	if err := s.DeltaSync(); err == nil {
 		t.Fatal("DeltaSync should propagate AddUser errors")
 	}
 }
+
+// ---- injectUsers ----
+
+func TestInjectUsers_AllSucceed(t *testing.T) {
+	mock := &mockXrayAPI{ready: true}
+	s := newSync(mock, "")
+	users := []userDTO{{UUID: "u1"}, {UUID: "u2"}}
+	if err := s.injectUsers(users); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := sorted(mock.allAdded()); len(got) != 2 || got[0] != "u1" || got[1] != "u2" {
+		t.Errorf("added = %v, want [u1 u2]", got)
+	}
+}
+
+func TestInjectUsers_SkipsDefaultUUID(t *testing.T) {
+	mock := &mockXrayAPI{ready: true}
+	s := newSync(mock, "")
+	users := []userDTO{{UUID: defaultUUID}, {UUID: "u1"}}
+	if err := s.injectUsers(users); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, id := range mock.allAdded() {
+		if id == defaultUUID {
+			t.Error("defaultUUID should not be sent to xray")
+		}
+	}
+	if len(mock.allAdded()) != 1 || mock.allAdded()[0] != "u1" {
+		t.Errorf("added = %v, want [u1]", mock.allAdded())
+	}
+}
+
+func TestInjectUsers_NotReady(t *testing.T) {
+	mock := &mockXrayAPI{ready: false}
+	s := newSync(mock, "")
+	if err := s.injectUsers([]userDTO{{UUID: "u1"}}); err == nil {
+		t.Fatal("expected error when xray gRPC not ready")
+	}
+	if len(mock.allAdded()) != 0 {
+		t.Errorf("expected no calls when not ready, got %v", mock.allAdded())
+	}
+}
+
+func TestInjectUsers_FailFastOnAddError(t *testing.T) {
+	mock := &mockXrayAPI{ready: true, addErr: fmt.Errorf("inject failed")}
+	s := newSync(mock, "")
+	users := []userDTO{{UUID: "u1"}, {UUID: "u2"}, {UUID: "u3"}}
+	if err := s.injectUsers(users); err == nil {
+		t.Fatal("expected error when add fails")
+	}
+	// 第一次失败立即返回，不应继续注入剩余用户
+	if len(mock.allAdded()) != 1 {
+		t.Errorf("expected fail-fast after 1st error, got %d adds", len(mock.allAdded()))
+	}
+}
+
+// ---- syncAfterRestart ----
+
+// 测试时大幅缩短 retry 间隔，使 4-5 次重试在 ~50ms 内完成。
+func withFastSyncRestart() func() {
+	origInterval := syncRestartRetryInterval
+	origRefresh := syncRestartRefreshEvery
+	syncRestartRetryInterval = 5 * time.Millisecond
+	syncRestartRefreshEvery = 3
+	return func() {
+		syncRestartRetryInterval = origInterval
+		syncRestartRefreshEvery = origRefresh
+	}
+}
+
+func TestSyncAfterRestart_FetchOK_InjectImmediately(t *testing.T) {
+	defer withFastSyncRestart()()
+
+	srv := usersServer([]string{"u1", "u2"})
+	defer srv.Close()
+	origClient := httpClient
+	httpClient = srv.Client()
+	defer func() { httpClient = origClient }()
+
+	mock := &mockXrayAPI{ready: true}
+	s := newSync(mock, srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	s.syncAfterRestart(ctx)
+
+	if got := sorted(mock.allAdded()); len(got) != 2 || got[0] != "u1" || got[1] != "u2" {
+		t.Errorf("added = %v, want [u1 u2]", got)
+	}
+}
+
+func TestSyncAfterRestart_TempUsersReInjected(t *testing.T) {
+	defer withFastSyncRestart()()
+
+	srv := usersServer([]string{"u-regular"})
+	defer srv.Close()
+	origClient := httpClient
+	httpClient = srv.Client()
+	defer func() { httpClient = origClient }()
+
+	mock := &mockXrayAPI{ready: true}
+	s := newSync(mock, srv.URL)
+
+	tempMgr := newMockManager()
+	ts := NewTempUserSync("", "", tempMgr)
+	ts.uuids = []string{"temp-1", "temp-2"}
+	s.SetTempSync(ts)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	s.syncAfterRestart(ctx)
+
+	// 正式用户走 mockXrayAPI，临时用户走 tempMgr：分别验证。
+	if got := mock.allAdded(); len(got) != 1 || got[0] != "u-regular" {
+		t.Errorf("regular user injected = %v, want [u-regular]", got)
+	}
+	if got := sorted(tempMgr.allAdded()); len(got) != 2 || got[0] != "temp-1" || got[1] != "temp-2" {
+		t.Errorf("temp users re-injected = %v, want [temp-1 temp-2]", got)
+	}
+}
+
+func TestSyncAfterRestart_RetriesUntilInjectSucceeds(t *testing.T) {
+	defer withFastSyncRestart()()
+
+	srv := usersServer([]string{"u1"})
+	defer srv.Close()
+	origClient := httpClient
+	httpClient = srv.Client()
+	defer func() { httpClient = origClient }()
+
+	mock := &mockXrayAPI{readyAfter: 3}
+	s := newSync(mock, srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	s.syncAfterRestart(ctx)
+
+	if mock.probes < 3 {
+		t.Errorf("expected at least 3 probes before success, got %d", mock.probes)
+	}
+	if len(mock.allAdded()) == 0 {
+		t.Error("expected eventual successful inject")
+	}
+}
+
+func TestSyncAfterRestart_CtxCancelExits(t *testing.T) {
+	defer withFastSyncRestart()()
+
+	// 后端返回错误，让 fetchUsers 失败 → users 为 nil → 永远走 continue 分支
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+	origClient := httpClient
+	httpClient = srv.Client()
+	defer func() { httpClient = origClient }()
+
+	mock := &mockXrayAPI{ready: false}
+	s := newSync(mock, srv.URL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.syncAfterRestart(ctx)
+		close(done)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("syncAfterRestart did not exit after ctx cancel")
+	}
+}
+
