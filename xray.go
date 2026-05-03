@@ -36,6 +36,7 @@ func setupXray(ctx context.Context, cfg Config, d *command.Dispatcher) {
 	d.Register(command.NewXrayUserAddHandler(syncer))
 	d.Register(command.NewXrayUserRemoveHandler(syncer))
 	d.Register(command.NewXrayUpdateHandler(ctx, syncer, cfg.XrayConfigPath))
+	d.Register(command.SetTierHandler{})
 }
 
 func buildProviders(cfg Config) []collect.MetricProvider {
