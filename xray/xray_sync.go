@@ -21,6 +21,8 @@ const (
 var (
 	syncRestartRetryInterval = 5 * time.Second
 	syncRestartRefreshEvery  = 10
+	// 连续失败次数达到该值才上报 Sentry，避免节点瞬时 DNS/网络抖动灌爆告警。
+	deltaSyncFailReportThreshold = 3
 )
 
 // XrayUserSync 管理 xray 用户的实时增量操作。

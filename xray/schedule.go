@@ -143,15 +143,21 @@ func (s *XrayUserSync) Start(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(deltaSyncInterval)
 		defer t.Stop()
+		consecutiveFails := 0
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-t.C:
 				if err := s.DeltaSync(); err != nil {
-					log.Printf("xray delta sync failed: %v", err)
-					sentry.CaptureException(err)
+					consecutiveFails++
+					log.Printf("xray delta sync failed (%d/%d): %v", consecutiveFails, deltaSyncFailReportThreshold, err)
+					if consecutiveFails >= deltaSyncFailReportThreshold {
+						sentry.CaptureException(err)
+					}
+					continue
 				}
+				consecutiveFails = 0
 			}
 		}
 	}()
