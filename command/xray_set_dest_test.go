@@ -47,7 +47,7 @@ func TestSetXrayDest_ReplacesDestAndServerNames(t *testing.T) {
 	if rs["dest"] != "www.cloudflare.com:443" {
 		t.Errorf("dest = %v, want www.cloudflare.com:443", rs["dest"])
 	}
-	if sn := firstServerName(rs); sn != "www.cloudflare.com" {
+	if sn := firstArrayString(rs, "serverNames"); sn != "www.cloudflare.com" {
 		t.Errorf("serverName = %q, want www.cloudflare.com", sn)
 	}
 }
@@ -64,7 +64,7 @@ func TestSetXrayDest_PreservesKeysAndShortIDs(t *testing.T) {
 	if rs["privateKey"] != "PRIV" {
 		t.Errorf("privateKey changed: %v", rs["privateKey"])
 	}
-	if sid := firstShortID(rs); sid != "c024" {
+	if sid := firstArrayString(rs, "shortIds"); sid != "c024" {
 		t.Errorf("shortId[0] = %q, want c024", sid)
 	}
 	if port := firstInboundPort(cfg); port != "25845" {
