@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -177,8 +178,8 @@ func selfTestXrayEgress(configPath string) error {
 		return err
 	}
 	priv, _ := rs["privateKey"].(string)
-	sni := firstServerName(rs)
-	sid := firstShortID(rs)
+	sni := firstArrayString(rs, "serverNames")
+	sid := firstArrayString(rs, "shortIds")
 	port := firstInboundPort(cfg)
 	if priv == "" || sni == "" || port == "" {
 		return fmt.Errorf("incomplete reality config for self-test")
@@ -297,21 +298,13 @@ func derivePublicKey(priv string) (string, error) {
 	return "", fmt.Errorf("public key not found in x25519 output")
 }
 
-func firstServerName(rs map[string]any) string {
-	names, ok := rs["serverNames"].([]any)
-	if !ok || len(names) == 0 {
+// firstArrayString 返回 m[key]（[]any）首个元素的字符串值，缺失/类型不符时返回 ""。
+func firstArrayString(m map[string]any, key string) string {
+	arr, ok := m[key].([]any)
+	if !ok || len(arr) == 0 {
 		return ""
 	}
-	s, _ := names[0].(string)
-	return s
-}
-
-func firstShortID(rs map[string]any) string {
-	ids, ok := rs["shortIds"].([]any)
-	if !ok || len(ids) == 0 {
-		return ""
-	}
-	s, _ := ids[0].(string)
+	s, _ := arr[0].(string)
 	return s
 }
 
@@ -336,12 +329,6 @@ func firstInboundPort(cfg map[string]any) string {
 }
 
 func atoiOrZero(s string) int {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return n
-		}
-		n = n*10 + int(c-'0')
-	}
+	n, _ := strconv.Atoi(s)
 	return n
 }
