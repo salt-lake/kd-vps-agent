@@ -280,7 +280,8 @@ func probeViaSocks(socksAddr, url string) error {
 	return nil
 }
 
-// derivePublicKey 用 `xray x25519 -i <priv>` 推导客户端 publicKey（新版输出 Password: 字段）。
+// derivePublicKey 用 `xray x25519 -i <priv>` 推导客户端 publicKey。
+// xray v26.3.27+ 输出改为 "Password (PublicKey):"（旧版 "Password:"），故用 HasPrefix("Password") 兼容两者。
 func derivePublicKey(priv string) (string, error) {
 	out, err := exec.Command(xrayBinaryPath, "x25519", "-i", priv).CombinedOutput()
 	if err != nil {
@@ -288,7 +289,7 @@ func derivePublicKey(priv string) (string, error) {
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Password:") || strings.HasPrefix(line, "Public key:") {
+		if strings.HasPrefix(line, "Password") || strings.HasPrefix(line, "Public key:") {
 			parts := strings.Fields(line)
 			if len(parts) > 0 {
 				return parts[len(parts)-1], nil
