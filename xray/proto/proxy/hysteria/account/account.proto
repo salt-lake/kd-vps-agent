@@ -1,0 +1,6 @@
+syntax = "proto3";
+package xray.proxy.hysteria.account;
+option go_package = "github.com/salt-lake/kd-vps-agent/xray/proto/proxy/hysteria/account";
+message Account {
+  string auth = 1;
+}
