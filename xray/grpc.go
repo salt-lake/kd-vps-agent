@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
 )
 
 // getAPI 获取或创建 xray gRPC API 客户端（长连接复用）。
@@ -19,7 +18,7 @@ func (s *XrayUserSync) getAPI() (XrayAPI, error) {
 		return s.xrayAPI, nil
 	}
 
-	api, err := NewGRPCXrayAPI(s.apiAddr, s.inboundTag)
+	api, err := NewGRPCXrayAPI(s.apiAddr, s.inbounds)
 	if err != nil {
 		return nil, err
 	}

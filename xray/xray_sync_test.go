@@ -20,8 +20,8 @@ import (
 type mockXrayAPI struct {
 	mu          sync.Mutex
 	ready       bool
-	readyAfter  int // 若 >0，前 readyAfter 次 IsXrayReady 返回 false
-	probes      int // IsXrayReady 调用次数
+	readyAfter  int      // 若 >0，前 readyAfter 次 IsXrayReady 返回 false
+	probes      int      // IsXrayReady 调用次数
 	added       []string // UUIDs passed to AddOrReplace
 	removed     []string // IDs passed to RemoveUserById
 	addErr      error
@@ -88,7 +88,7 @@ func (m *mockXrayAPI) allRemoved() []string {
 // ---- helpers ----
 
 func newSync(api XrayAPI, apiBase string) *XrayUserSync {
-	s := NewXrayUserSync(apiBase, "token", "127.0.0.1:10085", "vless", "")
+	s := NewXrayUserSync(apiBase, "token", "127.0.0.1:10085", "vless", "", "")
 	s.xrayAPI = api
 	return s
 }
@@ -207,7 +207,7 @@ func TestFetchUsers_SendsAuthHeader(t *testing.T) {
 	httpClient = srv.Client()
 	defer func() { httpClient = origClient }()
 
-	s := NewXrayUserSync(srv.URL, "my-token", "", "vless", "")
+	s := NewXrayUserSync(srv.URL, "my-token", "", "vless", "", "")
 	s.xrayAPI = &mockXrayAPI{}
 	_, _ = s.fetchUsers()
 
@@ -619,4 +619,3 @@ func TestSyncAfterRestart_CtxCancelExits(t *testing.T) {
 		t.Fatal("syncAfterRestart did not exit after ctx cancel")
 	}
 }
-

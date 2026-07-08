@@ -14,7 +14,7 @@ import (
 
 func TestBuildProtocolUser_ValidUUID(t *testing.T) {
 	u := &User{ID: "aaaa0000-0000-0000-0000-000000000001", UUID: "aaaa0000-0000-0000-0000-000000000001", Flow: "xtls-rprx-vision"}
-	pu, err := buildProtocolUser(u)
+	pu, err := buildProtocolUser(u, "vless")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestBuildProtocolUser_ValidUUID(t *testing.T) {
 
 func TestBuildProtocolUser_InvalidUUID(t *testing.T) {
 	u := &User{ID: "not-a-uuid", UUID: "not-a-uuid"}
-	_, err := buildProtocolUser(u)
+	_, err := buildProtocolUser(u, "vless")
 	if err == nil {
 		t.Fatal("expected error for invalid UUID")
 	}
@@ -40,7 +40,7 @@ func TestBuildProtocolUser_InvalidUUID(t *testing.T) {
 func TestBuildProtocolUser_EmailUsesID(t *testing.T) {
 	// Email 用 ID 字段构建，不用 UUID（两者可能不同）
 	u := &User{ID: "id-field", UUID: "bbbb0000-0000-0000-0000-000000000002"}
-	pu, err := buildProtocolUser(u)
+	pu, err := buildProtocolUser(u, "vless")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

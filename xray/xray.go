@@ -21,12 +21,13 @@ import (
 	stats "github.com/salt-lake/kd-vps-agent/xray/proto/app/stats/command"
 	"github.com/salt-lake/kd-vps-agent/xray/proto/common/protocol"
 	"github.com/salt-lake/kd-vps-agent/xray/proto/common/serial"
+	hyacct "github.com/salt-lake/kd-vps-agent/xray/proto/proxy/hysteria/account"
 	"github.com/salt-lake/kd-vps-agent/xray/proto/proxy/vless"
 )
 
 const DefaultXrayRPCTimeout = 1 * time.Second
 
-func NewGRPCXrayAPI(addr, inboundTag string) (*GRPCXrayAPI, error) {
+func NewGRPCXrayAPI(addr string, inbounds []InboundSpec) (*GRPCXrayAPI, error) {
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -35,11 +36,11 @@ func NewGRPCXrayAPI(addr, inboundTag string) (*GRPCXrayAPI, error) {
 		return nil, err
 	}
 	return &GRPCXrayAPI{
-		addr:       addr,
-		inboundTag: inboundTag,
-		conn:       conn,
-		client:     cmd.NewHandlerServiceClient(conn),
-		timeout:    10 * time.Second,
+		addr:     addr,
+		inbounds: inbounds,
+		conn:     conn,
+		client:   cmd.NewHandlerServiceClient(conn),
+		timeout:  10 * time.Second,
 	}, nil
 }
 
@@ -107,50 +108,63 @@ func (a *GRPCXrayAPI) AddOrReplace(ctx context.Context, user *User) error {
 
 func (a *GRPCXrayAPI) RemoveUserById(ctx context.Context, id string) error {
 	email := xrayEmail(id)
-	op := &cmd.RemoveUserOperation{Email: email}
-	req := &cmd.AlterInboundRequest{
-		Tag:       a.inboundTag,
-		Operation: toTypedMessage(op),
-	}
-	cctx, cancel := context.WithTimeout(ctx, a.timeout)
-	defer cancel()
-	_, err := a.client.AlterInbound(cctx, req)
-	if err != nil && !isXrayNotFound(err) {
-		log.Printf("[XRAY] remove_user failed addr=%s inbound=%s email=%s err=%v",
-			a.addr, a.inboundTag, email, err)
-		return err
+	// 遍历所有 inbound（vless + hy2），每个各删一次；全部成功才算完成。
+	for _, ib := range a.inbounds {
+		op := &cmd.RemoveUserOperation{Email: email}
+		req := &cmd.AlterInboundRequest{
+			Tag:       ib.Tag,
+			Operation: toTypedMessage(op),
+		}
+		cctx, cancel := context.WithTimeout(ctx, a.timeout)
+		_, err := a.client.AlterInbound(cctx, req)
+		cancel()
+		if err != nil && !isXrayNotFound(err) {
+			log.Printf("[XRAY] remove_user failed addr=%s inbound=%s email=%s err=%v",
+				a.addr, ib.Tag, email, err)
+			return err
+		}
 	}
 	return nil
 }
 
 func (a *GRPCXrayAPI) insertUser(ctx context.Context, user *User) error {
-	prUser, err := buildProtocolUser(user)
-	if err != nil {
-		return err
+	// 遍历所有 inbound（vless + hy2），按协议构造对应账号，各加一次；全部成功才算完成。
+	for _, ib := range a.inbounds {
+		prUser, err := buildProtocolUser(user, ib.Protocol)
+		if err != nil {
+			return err
+		}
+		op := &cmd.AddUserOperation{User: prUser}
+		req := &cmd.AlterInboundRequest{
+			Tag:       ib.Tag,
+			Operation: toTypedMessage(op),
+		}
+		cctx, cancel := context.WithTimeout(ctx, a.timeout)
+		_, err = a.client.AlterInbound(cctx, req)
+		cancel()
+		if err != nil && !isXrayAlreadyExists(err) {
+			log.Printf("[XRAY] add_user failed addr=%s inbound=%s proto=%s email=%s id=%s uuid=%s err=%v",
+				a.addr, ib.Tag, ib.Protocol, prUser.Email, user.ID, user.UUID, err)
+			return err
+		}
 	}
-	op := &cmd.AddUserOperation{User: prUser}
-	req := &cmd.AlterInboundRequest{
-		Tag:       a.inboundTag,
-		Operation: toTypedMessage(op),
-	}
-	cctx, cancel := context.WithTimeout(ctx, a.timeout)
-	defer cancel()
-	_, err = a.client.AlterInbound(cctx, req)
-	if err != nil && !isXrayAlreadyExists(err) {
-		log.Printf("[XRAY] add_user failed addr=%s inbound=%s email=%s id=%s uuid=%s err=%v",
-			a.addr, a.inboundTag, prUser.Email, user.ID, user.UUID, err)
-	}
-	return err
+	return nil
 }
 
-func buildProtocolUser(u *User) (*protocol.User, error) {
+func buildProtocolUser(u *User, protocolName string) (*protocol.User, error) {
 	if _, err := uuid.Parse(u.UUID); err != nil {
 		return nil, fmt.Errorf("invalid uuid %q: %w", u.UUID, err)
 	}
-	acc := &vless.Account{
-		Id:         u.UUID,
-		Encryption: "none",
-		Flow:       u.Flow,
+	var acc proto.Message
+	switch protocolName {
+	case "hysteria":
+		acc = &hyacct.Account{Auth: u.UUID}
+	default: // vless
+		acc = &vless.Account{
+			Id:         u.UUID,
+			Encryption: "none",
+			Flow:       u.Flow,
+		}
 	}
 	return &protocol.User{
 		Level:   0,

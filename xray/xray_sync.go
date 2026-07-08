@@ -27,11 +27,11 @@ var (
 
 // XrayUserSync 管理 xray 用户的实时增量操作。
 type XrayUserSync struct {
-	apiBase    string
-	token      string
-	apiAddr    string
-	inboundTag string
-	configPath string
+	apiBase             string
+	token               string
+	apiAddr             string
+	inbounds            []InboundSpec
+	configPath          string
 	mu                  sync.Mutex
 	xrayAPI             XrayAPI
 	tempSync            *TempUserSync
@@ -43,14 +43,24 @@ func (s *XrayUserSync) SetTempSync(ts *TempUserSync) {
 	s.tempSync = ts
 }
 
-func NewXrayUserSync(apiBase, token, apiAddr, inboundTag, configPath string) *XrayUserSync {
+func NewXrayUserSync(apiBase, token, apiAddr, inboundTag, hy2Tag, configPath string) *XrayUserSync {
 	return &XrayUserSync{
 		apiBase:    apiBase,
 		token:      token,
 		apiAddr:    apiAddr,
-		inboundTag: inboundTag,
+		inbounds:   buildInboundSpecs(inboundTag, hy2Tag),
 		configPath: configPath,
 	}
+}
+
+// buildInboundSpecs 组装需下发用户的 inbound 列表。hy2Tag 为空时仅含 vless，
+// 存量节点/未启用 hy2 时安全退化。
+func buildInboundSpecs(vlessTag, hy2Tag string) []InboundSpec {
+	specs := []InboundSpec{{Tag: vlessTag, Protocol: "vless"}}
+	if hy2Tag != "" {
+		specs = append(specs, InboundSpec{Tag: hy2Tag, Protocol: "hysteria"})
+	}
+	return specs
 }
 
 // TriggerResync 等待 xray gRPC 可用后重新全量注入用户（供外部调用）。

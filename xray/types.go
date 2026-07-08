@@ -25,10 +25,16 @@ type XrayAPI interface {
 	Close() error
 }
 
+// InboundSpec 描述一个需下发用户的 inbound：tag + 协议（决定账号类型）。
+type InboundSpec struct {
+	Tag      string
+	Protocol string // "vless" | "hysteria"
+}
+
 type GRPCXrayAPI struct {
-	addr       string
-	inboundTag string
-	conn       *grpc.ClientConn
-	client     cmd.HandlerServiceClient
-	timeout    time.Duration
+	addr     string
+	inbounds []InboundSpec
+	conn     *grpc.ClientConn
+	client   cmd.HandlerServiceClient
+	timeout  time.Duration
 }
