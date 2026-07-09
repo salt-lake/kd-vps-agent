@@ -59,10 +59,8 @@ func TestBuildSsPortFilter(t *testing.T) {
 		prs  []portRange
 		want string
 	}{
-		// 单段：与旧格式逐字节一致（无括号）
 		{"single port", []portRange{{443, 443}}, "sport = :443"},
 		{"single range", []portRange{{23327, 23330}}, "sport >= :23327 and sport <= :23330"},
-		// 多段：括号带空格 + or
 		{"range plus port", []portRange{{23327, 23330}, {443, 443}},
 			"( sport >= :23327 and sport <= :23330 ) or ( sport = :443 )"},
 		{"two ports", []portRange{{443, 443}, {8443, 8443}},

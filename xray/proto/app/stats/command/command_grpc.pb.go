@@ -27,6 +27,8 @@ type StatsServiceClient interface {
 	QueryStats(ctx context.Context, in *QueryStatsRequest, opts ...grpc.CallOption) (*QueryStatsResponse, error)
 	GetSysStats(ctx context.Context, in *SysStatsRequest, opts ...grpc.CallOption) (*SysStatsResponse, error)
 	GetStatsOnlineIpList(ctx context.Context, in *GetStatsRequest, opts ...grpc.CallOption) (*GetStatsOnlineIpListResponse, error)
+	GetAllOnlineUsers(ctx context.Context, in *GetAllOnlineUsersRequest, opts ...grpc.CallOption) (*GetAllOnlineUsersResponse, error)
+	GetUsersStats(ctx context.Context, in *GetUsersStatsRequest, opts ...grpc.CallOption) (*GetUsersStatsResponse, error)
 }
 
 type statsServiceClient struct {
@@ -82,6 +84,24 @@ func (c *statsServiceClient) GetStatsOnlineIpList(ctx context.Context, in *GetSt
 	return out, nil
 }
 
+func (c *statsServiceClient) GetAllOnlineUsers(ctx context.Context, in *GetAllOnlineUsersRequest, opts ...grpc.CallOption) (*GetAllOnlineUsersResponse, error) {
+	out := new(GetAllOnlineUsersResponse)
+	err := c.cc.Invoke(ctx, "/xray.app.stats.command.StatsService/GetAllOnlineUsers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *statsServiceClient) GetUsersStats(ctx context.Context, in *GetUsersStatsRequest, opts ...grpc.CallOption) (*GetUsersStatsResponse, error) {
+	out := new(GetUsersStatsResponse)
+	err := c.cc.Invoke(ctx, "/xray.app.stats.command.StatsService/GetUsersStats", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StatsServiceServer is the server API for StatsService service.
 // All implementations must embed UnimplementedStatsServiceServer
 // for forward compatibility
@@ -91,6 +111,8 @@ type StatsServiceServer interface {
 	QueryStats(context.Context, *QueryStatsRequest) (*QueryStatsResponse, error)
 	GetSysStats(context.Context, *SysStatsRequest) (*SysStatsResponse, error)
 	GetStatsOnlineIpList(context.Context, *GetStatsRequest) (*GetStatsOnlineIpListResponse, error)
+	GetAllOnlineUsers(context.Context, *GetAllOnlineUsersRequest) (*GetAllOnlineUsersResponse, error)
+	GetUsersStats(context.Context, *GetUsersStatsRequest) (*GetUsersStatsResponse, error)
 	mustEmbedUnimplementedStatsServiceServer()
 }
 
@@ -112,6 +134,12 @@ func (UnimplementedStatsServiceServer) GetSysStats(context.Context, *SysStatsReq
 }
 func (UnimplementedStatsServiceServer) GetStatsOnlineIpList(context.Context, *GetStatsRequest) (*GetStatsOnlineIpListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetStatsOnlineIpList not implemented")
+}
+func (UnimplementedStatsServiceServer) GetAllOnlineUsers(context.Context, *GetAllOnlineUsersRequest) (*GetAllOnlineUsersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllOnlineUsers not implemented")
+}
+func (UnimplementedStatsServiceServer) GetUsersStats(context.Context, *GetUsersStatsRequest) (*GetUsersStatsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUsersStats not implemented")
 }
 func (UnimplementedStatsServiceServer) mustEmbedUnimplementedStatsServiceServer() {}
 
@@ -216,6 +244,42 @@ func _StatsService_GetStatsOnlineIpList_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StatsService_GetAllOnlineUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAllOnlineUsersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StatsServiceServer).GetAllOnlineUsers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/xray.app.stats.command.StatsService/GetAllOnlineUsers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StatsServiceServer).GetAllOnlineUsers(ctx, req.(*GetAllOnlineUsersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _StatsService_GetUsersStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUsersStatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StatsServiceServer).GetUsersStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/xray.app.stats.command.StatsService/GetUsersStats",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StatsServiceServer).GetUsersStats(ctx, req.(*GetUsersStatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // StatsService_ServiceDesc is the grpc.ServiceDesc for StatsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -242,6 +306,14 @@ var StatsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStatsOnlineIpList",
 			Handler:    _StatsService_GetStatsOnlineIpList_Handler,
+		},
+		{
+			MethodName: "GetAllOnlineUsers",
+			Handler:    _StatsService_GetAllOnlineUsers_Handler,
+		},
+		{
+			MethodName: "GetUsersStats",
+			Handler:    _StatsService_GetUsersStats_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

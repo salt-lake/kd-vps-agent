@@ -3,6 +3,7 @@
 package collect
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	statscmd "github.com/salt-lake/kd-vps-agent/xray/proto/app/stats/command"
 )
 
 // xrayProvider 采集 Xray 连接数、版本和端口可达性
@@ -26,7 +32,7 @@ func NewXrayProvider(apiAddr, configPath, inboundTag string) MetricProvider {
 }
 
 func (x *xrayProvider) Collect(p *Payload) {
-	p.Conn = xrayConnCount(x.configPath, x.inboundTag)
+	p.Conn = xrayOnlineUsers(x.apiAddr, x.configPath, x.inboundTag)
 	p.SV = xrayVersion()
 	if xrayPortProbe(x.configPath, x.inboundTag) {
 		p.Health = "ok"
@@ -85,6 +91,7 @@ func readInboundPort(configPath, inboundTag string) ([]portRange, error) {
 //   - 数字 443           → [{443,443}]
 //   - 字符串 "56771-56774" → [{56771,56774}]
 //   - 字符串 "443"        → [{443,443}]
+//
 // 新增支持逗号列表（各段可为单端口或范围）：
 //   - "56771-56774,443"  → [{56771,56774},{443,443}]
 func parsePort(raw json.RawMessage) ([]portRange, error) {
@@ -141,9 +148,34 @@ func xrayVersion() string {
 	return m[1]
 }
 
+// xrayOnlineUsers 统计在线用户数。优先走 xray gRPC StatsService.GetAllOnlineUsers
+// （工作在用户会话层，同时覆盖 VLESS(TCP) 与 Hysteria2(UDP/QUIC)，前提是配置了
+// policy.levels.*.statsUserOnline = true）；当 RPC 报错（极老 xray 无此接口）时，
+// 回退到旧的 ss 方案，保证对存量节点向下兼容。
+//
+// 注意：statsUserOnline 未开启时 GetAllOnlineUsers 返回空列表（非报错），此时会得到
+// "0"——rollout 需先给存量节点开启 statsUserOnline 再发新 agent，避免空窗期误报 0。
+func xrayOnlineUsers(apiAddr, configPath, inboundTag string) string {
+	conn, err := grpc.NewClient(apiAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return xrayConnCountSS(configPath, inboundTag)
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	client := statscmd.NewStatsServiceClient(conn)
+	resp, err := client.GetAllOnlineUsers(ctx, &statscmd.GetAllOnlineUsersRequest{})
+	if err != nil {
+		// RPC 不可用（老版本 xray 无此接口 / 连接失败）→ 回退 ss
+		return xrayConnCountSS(configPath, inboundTag)
+	}
+	return strconv.Itoa(len(resp.GetUsers()))
+}
+
 // buildSsPortFilter 为一个或多个端口段构造 ss 过滤表达式。
-// 单段时与旧格式逐字节一致（无括号）；多段时各段用括号包裹再 OR。
-// 注意：ss 要求括号内外留空格，否则报 "an inet prefix is expected"。
+// 单段时无括号；多段时各段用括号包裹再 OR（ss 要求括号内外留空格）。
 func buildSsPortFilter(prs []portRange) string {
 	seg := func(pr portRange) string {
 		if pr.Start == pr.End {
@@ -161,29 +193,25 @@ func buildSsPortFilter(prs []portRange) string {
 	return strings.Join(parts, " or ")
 }
 
-// xrayConnCount 统计 xray 监听端口上的唯一源 IP 数作为在线连接数。
-// xray v26 的 stats API（QueryStats）有服务端 bug，CLI 和 gRPC 直调均失败，
-// 因此改用 ss 统计 TCP 连接。
-func xrayConnCount(configPath, inboundTag string) string {
+// xrayConnCountSS 用 ss 统计 xray 监听端口上的唯一源 IP 数（仅 TCP，不含 hy2/UDP）。
+// 作为 GetAllOnlineUsers 不可用时的向下兼容兜底。
+func xrayConnCountSS(configPath, inboundTag string) string {
 	prs, err := readInboundPort(configPath, inboundTag)
 	if err != nil || len(prs) == 0 || prs[0].Start <= 0 {
 		return "0"
 	}
-
-	// ss 过滤所有监听端口段的 ESTABLISHED 连接（逗号列表时 OR 各段），统计唯一源 IP
 	filter := buildSsPortFilter(prs)
 	out, err := exec.Command("ss", "-tn", "state", "established", filter).Output()
 	if err != nil {
 		return "0"
 	}
-
 	ips := make(map[string]struct{})
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
 		}
-		peer := fields[3] // 格式 "1.2.3.4:12345" 或 "[::ffff:1.2.3.4]:12345"
+		peer := fields[3] // "1.2.3.4:12345" 或 "[::ffff:1.2.3.4]:12345"
 		if idx := strings.LastIndex(peer, ":"); idx > 0 {
 			ip := peer[:idx]
 			ip = strings.Trim(ip, "[]")
