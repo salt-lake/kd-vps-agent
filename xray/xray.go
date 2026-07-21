@@ -208,6 +208,10 @@ func isXrayNotFound(err error) bool {
 	return strings.Contains(strings.ToLower(st.Message()), "not found")
 }
 
+// EmailPrefix 是注入用户 email 的固定前缀（"xray@" + uuid）。
+// collect 包按此前缀从 stats 计数器名反解 uuid——两侧共享此常量，防止改动后静默失配。
+const EmailPrefix = "xray@"
+
 func xrayEmail(id string) string {
-	return fmt.Sprintf("xray@%s", id)
+	return EmailPrefix + id
 }

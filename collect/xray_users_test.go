@@ -17,10 +17,10 @@ func TestParseUserCounter(t *testing.T) {
 	}{
 		{"user>>>xray@0e6ac7ff-8888-4444-9999-c72fd2a0efc1>>>traffic>>>uplink", "0e6ac7ff-8888-4444-9999-c72fd2a0efc1", true, true},
 		{"user>>>xray@abc>>>traffic>>>downlink", "abc", false, true},
-		{"inbound>>>reality-in>>>traffic>>>uplink", "", false, false},   // 非 user 计数器
-		{"user>>>default@test>>>traffic>>>uplink", "", false, false},    // 静态占位用户，非本系统注入
-		{"user>>>xray@>>>traffic>>>uplink", "", false, false},           // 空 uuid
-		{"user>>>xray@abc>>>traffic>>>sideways", "", false, false},      // 未知方向
+		{"inbound>>>reality-in>>>traffic>>>uplink", "", false, false}, // 非 user 计数器
+		{"user>>>default@test>>>traffic>>>uplink", "", false, false},  // 静态占位用户，非本系统注入
+		{"user>>>xray@>>>traffic>>>uplink", "", false, false},         // 空 uuid
+		{"user>>>xray@abc>>>traffic>>>sideways", "", false, false},    // 未知方向
 		{"garbage", "", false, false},
 	}
 	for _, c := range cases {

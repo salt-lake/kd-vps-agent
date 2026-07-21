@@ -32,8 +32,13 @@ func NewXrayProvider(apiAddr, configPath, inboundTag string) MetricProvider {
 }
 
 func (x *xrayProvider) Collect(p *Payload) {
-	p.Conn = xrayOnlineUsers(x.apiAddr, x.configPath, x.inboundTag)
-	p.U = xrayUserTraffic(x.apiAddr)
+	// 同一 tick 的两个 stats RPC 共用一条连接；dial 失败各自降级
+	conn := dialXrayAPI(x.apiAddr)
+	if conn != nil {
+		defer conn.Close()
+	}
+	p.Conn = xrayOnlineUsers(conn, x.configPath, x.inboundTag)
+	p.U = xrayUserTraffic(conn)
 	p.SV = xrayVersion()
 	if xrayPortProbe(x.configPath, x.inboundTag) {
 		p.Health = "ok"
@@ -156,12 +161,10 @@ func xrayVersion() string {
 //
 // 注意：statsUserOnline 未开启时 GetAllOnlineUsers 返回空列表（非报错），此时会得到
 // "0"——rollout 需先给存量节点开启 statsUserOnline 再发新 agent，避免空窗期误报 0。
-func xrayOnlineUsers(apiAddr, configPath, inboundTag string) string {
-	conn, err := grpc.NewClient(apiAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
+func xrayOnlineUsers(conn *grpc.ClientConn, configPath, inboundTag string) string {
+	if conn == nil {
 		return xrayConnCountSS(configPath, inboundTag)
 	}
-	defer conn.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -173,6 +176,16 @@ func xrayOnlineUsers(apiAddr, configPath, inboundTag string) string {
 		return xrayConnCountSS(configPath, inboundTag)
 	}
 	return strconv.Itoa(len(resp.GetUsers()))
+}
+
+// dialXrayAPI 创建到 xray api 的惰性 gRPC 连接（真正建连发生在首个 RPC）；
+// 失败返回 nil，调用方各自降级。
+func dialXrayAPI(apiAddr string) *grpc.ClientConn {
+	conn, err := grpc.NewClient(apiAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil
+	}
+	return conn
 }
 
 // buildSsPortFilter 为一个或多个端口段构造 ss 过滤表达式。

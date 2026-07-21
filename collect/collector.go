@@ -5,17 +5,17 @@ import "os/exec"
 // Payload 上报数据结构（所有协议共用字段）
 type Payload struct {
 	C      string `json:"c"`
-	M      string `json:"m"`       // 月出站流量
-	D      string `json:"d"`       // 日出站流量
-	MR     string `json:"m_r"`     // 月入站流量
-	DR     string `json:"d_r"`     // 日入站流量
-	Conn   string `json:"conn"`    // 连接数
-	Mem    string `json:"mem"`     // 内存占用百分比
-	CPU    string `json:"cpu"`     // CPU 占用百分比
-	Disk   string `json:"disk"`    // 磁盘占用百分比
-	SV     string `json:"s_v"`               // 协议软件版本
-	AV     string `json:"a_v"`               // agent 版本
-	NodeID string `json:"node_id"`           // 节点 ID
+	M      string `json:"m"`                // 月出站流量
+	D      string `json:"d"`                // 日出站流量
+	MR     string `json:"m_r"`              // 月入站流量
+	DR     string `json:"d_r"`              // 日入站流量
+	Conn   string `json:"conn"`             // 连接数
+	Mem    string `json:"mem"`              // 内存占用百分比
+	CPU    string `json:"cpu"`              // CPU 占用百分比
+	Disk   string `json:"disk"`             // 磁盘占用百分比
+	SV     string `json:"s_v"`              // 协议软件版本
+	AV     string `json:"a_v"`              // agent 版本
+	NodeID string `json:"node_id"`          // 节点 ID
 	Health string `json:"health,omitempty"` // 代理端口可达性："ok" / "err"（xray 专用）
 
 	U map[string][2]int64 `json:"u,omitempty"` // 每用户流量增量 {uuid: [uplink, downlink]}，字节，自上次采集以来（xray 专用）
