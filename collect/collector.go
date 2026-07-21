@@ -17,6 +17,8 @@ type Payload struct {
 	AV     string `json:"a_v"`               // agent 版本
 	NodeID string `json:"node_id"`           // 节点 ID
 	Health string `json:"health,omitempty"` // 代理端口可达性："ok" / "err"（xray 专用）
+
+	U map[string][2]int64 `json:"u,omitempty"` // 每用户流量增量 {uuid: [uplink, downlink]}，字节，自上次采集以来（xray 专用）
 }
 
 // MetricProvider 单项采集接口，只填自己负责的字段

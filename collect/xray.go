@@ -33,6 +33,7 @@ func NewXrayProvider(apiAddr, configPath, inboundTag string) MetricProvider {
 
 func (x *xrayProvider) Collect(p *Payload) {
 	p.Conn = xrayOnlineUsers(x.apiAddr, x.configPath, x.inboundTag)
+	p.U = xrayUserTraffic(x.apiAddr)
 	p.SV = xrayVersion()
 	if xrayPortProbe(x.configPath, x.inboundTag) {
 		p.Health = "ok"
