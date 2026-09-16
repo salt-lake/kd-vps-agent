@@ -160,6 +160,20 @@ GitHub Actions 根据 tag 后缀构建对应的 linux/amd64 产物并创建各�
 
 ---
 
+## 测试
+
+```bash
+go test ./...              # 全部单测（ikev2 构建，不含 xray tag）
+go test -tags xray ./...   # xray 构建下的单测
+```
+
+## 上下游与契约
+
+- HTTP 对 kd-midnight（被调用方），NATS 对 kd-vps-backend（双向）
+- `contracts/` 是 git submodule；改契约后 `git submodule update --remote contracts`
+- `.claude/rules/agent-http.md`、`.claude/rules/agent-nats.md` 按 `paths:` 前缀自动加载
+- **本仓库分布在约 300 台节点，无法原子升级**：对外接口只能向后兼容演进，字段只增不改不删，未知字段必须忽略
+
 ## 节点安装
 
 由后端 `scripts/bootstrap.sh` 内嵌的 `agent_install.sh` 自动完成，bootstrap 链路触发：
