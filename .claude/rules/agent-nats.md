@@ -1,0 +1,1 @@
+../../contracts/agent-nats.md
