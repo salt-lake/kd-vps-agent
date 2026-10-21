@@ -169,7 +169,7 @@ go test -tags xray ./...   # xray 构建下的单测
 
 ## 上下游与契约
 
-- HTTP 对 kd-midnight（被调用方），NATS 对 kd-vps-backend（双向）
+- HTTP 对 kd-midnight（被调用方），NATS 对 kd-vps-server（双向，原 kd-vps-backend）
 - `contracts/` 是 git submodule；改契约后 `git submodule update --remote contracts`
 - `.claude/rules/agent-http.md`、`.claude/rules/agent-nats.md` 按 `paths:` 前缀自动加载
 - **本仓库分布在约 300 台节点，无法原子升级**：对外接口只能向后兼容演进，字段只增不改不删，未知字段必须忽略
